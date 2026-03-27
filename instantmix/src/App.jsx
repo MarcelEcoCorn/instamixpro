@@ -8,6 +8,7 @@ import Partie from './pages/Partie'
 import Kalkulator from './pages/Kalkulator'
 import Produkcja from './pages/Produkcja'
 import Dashboard from './pages/Dashboard'
+import Eksport from './pages/Eksport'
 import './index.css'
 
 export const AuthContext = createContext(null)
@@ -47,7 +48,11 @@ export default function App() {
 
   if (!session) return <Login />
 
-  const pages = { receptury: Receptury, skladniki: Skladniki, partie: Partie, kalkulator: Kalkulator, produkcja: Produkcja, dashboard: Dashboard }
+  const pages = {
+    receptury: Receptury, skladniki: Skladniki, partie: Partie,
+    kalkulator: Kalkulator, produkcja: Produkcja, dashboard: Dashboard,
+    eksport: Eksport
+  }
   const PageComponent = pages[page] || Produkcja
 
   return (

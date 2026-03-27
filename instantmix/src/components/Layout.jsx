@@ -8,6 +8,7 @@ const NAV = [
   { id: 'kalkulator', label: 'Kalkulator',          roles: ['admin','technolog','brygadzista'] },
   { id: 'produkcja',  label: 'Produkcja',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
   { id: 'dashboard',  label: 'Dashboard',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
+  { id: 'eksport',    label: 'Eksport / kopia',     roles: ['admin','technolog'] },
 ]
 
 const ROLE_LABELS = { admin:'Admin', technolog:'Technolog', brygadzista:'Brygadzista', sprzedaz:'Sprzedaż' }
@@ -17,13 +18,10 @@ export default function Layout({ page, setPage, children }) {
   const role = profile?.role || 'brygadzista'
   const visibleNav = NAV.filter(n => n.roles.includes(role))
 
-  async function logout() {
-    await supabase.auth.signOut()
-  }
+  async function logout() { await supabase.auth.signOut() }
 
   return (
     <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }}>
-      {/* Topbar */}
       <div style={{ background:'#fff', borderBottom:'0.5px solid #D3D1C7', padding:'0 16px', display:'flex', alignItems:'center', height:'52px', gap:'12px', position:'sticky', top:0, zIndex:100 }}>
         <div style={{ fontSize:'15px', fontWeight:'500' }}>
           Instant<span style={{ color:'#1D9E75' }}>Mix</span> Pro
@@ -38,7 +36,6 @@ export default function Layout({ page, setPage, children }) {
         </div>
       </div>
 
-      {/* Nav */}
       <div style={{ background:'#fff', borderBottom:'0.5px solid #D3D1C7', display:'flex', padding:'0 16px', overflowX:'auto' }}>
         {visibleNav.map(n => (
           <button key={n.id} onClick={() => setPage(n.id)} style={{
@@ -51,7 +48,6 @@ export default function Layout({ page, setPage, children }) {
         ))}
       </div>
 
-      {/* Content */}
       <div style={{ flex:1, padding:'16px', maxWidth:'1140px', width:'100%', margin:'0 auto' }}>
         {children}
       </div>
