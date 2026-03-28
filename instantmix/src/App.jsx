@@ -9,6 +9,7 @@ import Kalkulator from './pages/Kalkulator'
 import Produkcja from './pages/Produkcja'
 import Dashboard from './pages/Dashboard'
 import Eksport from './pages/Eksport'
+import Magazyn from './pages/Magazyn'
 import './index.css'
 
 export const AuthContext = createContext(null)
@@ -41,7 +42,7 @@ export default function App() {
   }
 
   if (loading) return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', fontFamily:'sans-serif', color:'#5F5E5A' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif', color: '#5F5E5A' }}>
       Ładowanie...
     </div>
   )
@@ -51,7 +52,7 @@ export default function App() {
   const pages = {
     receptury: Receptury, skladniki: Skladniki, partie: Partie,
     kalkulator: Kalkulator, produkcja: Produkcja, dashboard: Dashboard,
-    eksport: Eksport
+    eksport: Eksport, magazyn: Magazyn
   }
   const PageComponent = pages[page] || Produkcja
 
