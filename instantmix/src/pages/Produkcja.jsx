@@ -34,7 +34,10 @@ export default function Produkcja() {
 
   const filtered = batches.filter(b => {
     const q = search.toLowerCase()
-    const matchQ = !q || b.lot_number.toLowerCase().includes(q) || b.recipe_name.toLowerCase().includes(q) || b.recipe_code.toLowerCase().includes(q)
+    const matchQ = !q || b.lot_number.toLowerCase().includes(q) ||
+      b.recipe_name.toLowerCase().includes(q) ||
+      b.recipe_code.toLowerCase().includes(q) ||
+      (b.client || '').toLowerCase().includes(q)
     const matchDay = !fDay || b.production_date === fDay
     const matchMonth = !fMonth || b.production_date?.startsWith(fMonth)
     const matchYear = !fYear || b.production_date?.startsWith(fYear)
@@ -63,6 +66,7 @@ export default function Produkcja() {
       id: batch.id,
       production_date: batch.production_date || '',
       quantity_kg: batch.quantity_kg || '',
+      client: batch.client || '',
       operator: batch.operator || '',
       foreman: batch.foreman || '',
       technologist: batch.technologist || '',
@@ -80,6 +84,7 @@ export default function Produkcja() {
     const { error } = await supabase.from('production_batches').update({
       production_date: editForm.production_date,
       quantity_kg: parseFloat(editForm.quantity_kg),
+      client: editForm.client || null,
       operator: editForm.operator || null,
       foreman: editForm.foreman || null,
       technologist: editForm.technologist || null,
@@ -102,8 +107,8 @@ export default function Produkcja() {
     doc.setFontSize(10); doc.text(`Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} | Partii: ${stats.count} | Lacznie: ${stats.kg} kg`, 14, 22)
     autoTable(doc, {
       startY: 28,
-      head: [['Nr partii prod.', 'Kod', 'Nazwa mieszanki', 'Data prod.', 'Linia prod.', 'Ilosc (kg)', 'Wersja', 'Status']],
-      body: filtered.map(b => [b.lot_number, b.recipe_code, b.recipe_name, b.production_date, b.production_line, b.quantity_kg, b.recipe_version, b.status]),
+      head: [['Nr partii prod.', 'Kod', 'Nazwa mieszanki', 'Klient', 'Data prod.', 'Linia', 'Ilosc (kg)', 'Wersja', 'Status']],
+      body: filtered.map(b => [b.lot_number, b.recipe_code, b.recipe_name, b.client || '—', b.production_date, b.production_line, b.quantity_kg, b.recipe_version, b.status]),
       styles: { fontSize: 8 }, headStyles: { fillColor: [15, 110, 86] }
     })
     doc.save(`raport_produkcji_${new Date().toISOString().slice(0,10)}.pdf`)
@@ -119,10 +124,11 @@ export default function Produkcja() {
     doc.setFontSize(14); doc.text(`Raport partii: ${batch.lot_number}`, 14, 16)
     doc.setFontSize(10)
     doc.text(`${batch.recipe_code} — ${batch.recipe_name} (${batch.recipe_version})`, 14, 24)
-    doc.text(`Data: ${batch.production_date} | Masa: ${batch.quantity_kg} kg | Linia: ${batch.production_line}`, 14, 31)
-    doc.text(`Operator: ${batch.operator || '—'} | Brygadzista: ${batch.foreman || '—'} | Technolog: ${batch.technologist || '—'}`, 14, 38)
+    doc.text(`Klient: ${batch.client || '—'}`, 14, 31)
+    doc.text(`Data: ${batch.production_date} | Masa: ${batch.quantity_kg} kg | Linia: ${batch.production_line}`, 14, 38)
+    doc.text(`Operator: ${batch.operator || '—'} | Brygadzista: ${batch.foreman || '—'} | Technolog: ${batch.technologist || '—'}`, 14, 45)
     autoTable(doc, {
-      startY: 44,
+      startY: 52,
       head: [['Kod skl.', 'Nazwa', 'Partia dostawy', 'Uzyto (kg)', 'FIFO', 'Alergen']],
       body: (items||[]).map(it => [
         it.ingredients?.code, it.ingredients?.name,
@@ -161,8 +167,8 @@ export default function Produkcja() {
       {/* Filtry */}
       <div className="card" style={{ padding:'12px 16px', marginBottom:10 }}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 140px 180px 100px auto', gap:10, alignItems:'end' }}>
-          <div><label>Szukaj</label>
-            <input className="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="nr partii, nazwa, kod..." style={{ width:'100%' }} />
+          <div><label>Szukaj (nr partii, nazwa, klient)</label>
+            <input className="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="nr partii, nazwa, kod, klient..." style={{ width:'100%' }} />
           </div>
           <div><label>Dzień</label><input type="date" value={fDay} onChange={e => setFDay(e.target.value)} /></div>
           <div><label>Miesiąc</label>
@@ -187,19 +193,25 @@ export default function Produkcja() {
       </div>
 
       <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:900 }}>
+        <table style={{ minWidth:980 }}>
           <thead><tr>
             <th>Nr partii prod.</th><th>Kod</th><th>Nazwa mieszanki</th>
-            <th>Data prod.</th><th>Linia prod.</th>
+            <th>Klient</th><th>Data prod.</th><th>Linia prod.</th>
             <th>Ilość (kg)</th><th>Wersja</th><th>Status</th><th></th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={9} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(b => (
               <tr key={b.id}>
                 <td><span className="lot">{b.lot_number}</span></td>
                 <td><span className="lot">{b.recipe_code}</span></td>
                 <td style={{ fontWeight:500 }}>{b.recipe_name}</td>
+                <td>
+                  {b.client
+                    ? <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:500 }}>{b.client}</span>
+                    : <span className="muted">—</span>
+                  }
+                </td>
                 <td className="muted">{b.production_date}</td>
                 <td><span className={`badge ${b.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{b.production_line === 'bezglutenowa' ? 'Bezglutenowa' : 'Zwykła'}</span></td>
                 <td style={{ fontWeight:500, textAlign:'right' }}>{b.quantity_kg}</td>
@@ -216,7 +228,7 @@ export default function Produkcja() {
                 </td>
               </tr>
             ))}
-            {!loading && filtered.length === 0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
+            {!loading && filtered.length === 0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
           </tbody>
         </table>
       </div>
@@ -224,16 +236,18 @@ export default function Produkcja() {
       {/* Szczegóły partii */}
       {detail && (
         <div className="card" style={{ borderLeft:'3px solid #1D9E75', marginTop:8 }}>
-          <div className="flex" style={{ marginBottom:10, flexWrap:'wrap', gap:6 }}>
+          <div className="flex" style={{ marginBottom:8, flexWrap:'wrap', gap:6 }}>
             <span className="lot">{detail.lot_number}</span>
             <span style={{ fontWeight:500 }}>{detail.recipe_name}</span>
             <span className="badge b-info">{detail.recipe_version}</span>
             <span className={`badge ${detail.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{detail.production_line}</span>
+            {detail.client && <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:500 }}>{detail.client}</span>}
             <span className="muted" style={{ marginLeft:'auto' }}>{detail.production_date} | {detail.quantity_kg} kg</span>
             <button className="btn btn-sm" onClick={() => { setDetail(null); setDetailItems([]) }}>Zamknij</button>
           </div>
           <div className="muted" style={{ marginBottom:8 }}>
-            Operator: {detail.operator || '—'} | Brygadzista: {detail.foreman || '—'} | Technolog: {detail.technologist || '—'}
+            Operator: {detail.operator || '—'} &nbsp;|&nbsp; Brygadzista: {detail.foreman || '—'} &nbsp;|&nbsp; Technolog: {detail.technologist || '—'}
+            {detail.notes && <span> &nbsp;|&nbsp; Uwagi: {detail.notes}</span>}
           </div>
           <div className="card-0">
             <table>
@@ -255,12 +269,12 @@ export default function Produkcja() {
         </div>
       )}
 
-      {/* Modal edycji — tylko Admin */}
+      {/* Modal edycji */}
       <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
         <div className="modal">
           <div className="modal-title">Edycja partii produkcyjnej</div>
           <div className="info-box" style={{ marginBottom:10 }}>
-            Edycja dostępna tylko dla Admina. Zmiana daty i danych nie wpływa na powiązane partie składników.
+            Edycja dostępna tylko dla Admina.
           </div>
           {editError && <div className="err-box">{editError}</div>}
           <div className="fr">
@@ -270,6 +284,14 @@ export default function Produkcja() {
             <div><label>Ilość (kg) *</label>
               <input type="number" step="0.001" value={editForm.quantity_kg || ''} onChange={e => ef('quantity_kg', e.target.value)} />
             </div>
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <label>Klient (przeznaczenie partii)</label>
+            <input
+              value={editForm.client || ''}
+              onChange={e => ef('client', e.target.value)}
+              placeholder="np. Firma ABC, Hurtownia XYZ"
+            />
           </div>
           <div className="fr">
             <div><label>Operator</label>
