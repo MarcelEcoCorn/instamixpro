@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../App'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 const STATUS_LABELS = { w_trakcie:'W trakcie', wyprodukowana:'Wyprodukowana', wstrzymana:'Wstrzymana', wydana:'Wydana' }
 
 export default function Produkcja() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+
   const [batches, setBatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -14,6 +18,10 @@ export default function Produkcja() {
   const [fYear, setFYear] = useState('')
   const [detail, setDetail] = useState(null)
   const [detailItems, setDetailItems] = useState([])
+  const [editModal, setEditModal] = useState(false)
+  const [editForm, setEditForm] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   useEffect(() => { load() }, [])
 
@@ -50,14 +58,52 @@ export default function Produkcja() {
     setDetail(batch); setDetailItems(data || [])
   }
 
-  function exportPDF() {
+  function openEdit(batch) {
+    setEditForm({
+      id: batch.id,
+      production_date: batch.production_date || '',
+      quantity_kg: batch.quantity_kg || '',
+      operator: batch.operator || '',
+      foreman: batch.foreman || '',
+      technologist: batch.technologist || '',
+      status: batch.status || 'wyprodukowana',
+      notes: batch.notes || '',
+    })
+    setEditError('')
+    setEditModal(true)
+  }
+
+  async function saveEdit() {
+    if (!editForm.production_date) { setEditError('Data produkcji jest wymagana'); return }
+    if (!editForm.quantity_kg) { setEditError('Ilość jest wymagana'); return }
+    setSaving(true); setEditError('')
+    const { error } = await supabase.from('production_batches').update({
+      production_date: editForm.production_date,
+      quantity_kg: parseFloat(editForm.quantity_kg),
+      operator: editForm.operator || null,
+      foreman: editForm.foreman || null,
+      technologist: editForm.technologist || null,
+      status: editForm.status,
+      notes: editForm.notes || null,
+      updated_at: new Date().toISOString()
+    }).eq('id', editForm.id)
+    setSaving(false)
+    if (error) { setEditError(error.message); return }
+    setEditModal(false)
+    if (detail?.id === editForm.id) setDetail(null)
+    load()
+  }
+
+  const ef = (k, v) => setEditForm(p => ({ ...p, [k]: v }))
+
+  async function exportPDF() {
     const doc = new jsPDF('l', 'mm', 'a4')
     doc.setFontSize(14); doc.text(`InstantMix Pro — Raport produkcji`, 14, 14)
-    doc.setFontSize(10); doc.text(`Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} | Partii: ${stats.count} | Łącznie: ${stats.kg} kg`, 14, 22)
+    doc.setFontSize(10); doc.text(`Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} | Partii: ${stats.count} | Lacznie: ${stats.kg} kg`, 14, 22)
     autoTable(doc, {
       startY: 28,
-      head: [['Nr partii prod.', 'Kod', 'Nazwa mieszanki', 'Nr partii mix.', 'Data prod.', 'Linia prod.', 'Ilość (kg)', 'Wersja', 'Status']],
-      body: filtered.map(b => [b.lot_number, b.recipe_code, b.recipe_name, '—', b.production_date, b.production_line, b.quantity_kg, b.recipe_version, b.status]),
+      head: [['Nr partii prod.', 'Kod', 'Nazwa mieszanki', 'Data prod.', 'Linia prod.', 'Ilosc (kg)', 'Wersja', 'Status']],
+      body: filtered.map(b => [b.lot_number, b.recipe_code, b.recipe_name, b.production_date, b.production_line, b.quantity_kg, b.recipe_version, b.status]),
       styles: { fontSize: 8 }, headStyles: { fillColor: [15, 110, 86] }
     })
     doc.save(`raport_produkcji_${new Date().toISOString().slice(0,10)}.pdf`)
@@ -77,7 +123,7 @@ export default function Produkcja() {
     doc.text(`Operator: ${batch.operator || '—'} | Brygadzista: ${batch.foreman || '—'} | Technolog: ${batch.technologist || '—'}`, 14, 38)
     autoTable(doc, {
       startY: 44,
-      head: [['Kod skł.', 'Nazwa', 'Partia dostawy', 'Użyto (kg)', 'Kolejność FIFO', 'Alergen']],
+      head: [['Kod skl.', 'Nazwa', 'Partia dostawy', 'Uzyto (kg)', 'FIFO', 'Alergen']],
       body: (items||[]).map(it => [
         it.ingredients?.code, it.ingredients?.name,
         it.ingredient_batches?.delivery_lot,
@@ -105,12 +151,11 @@ export default function Produkcja() {
   return (
     <div>
       <div className="page-header">
-        <div><div className="page-title">Produkcja / powiązanie partii</div>
+        <div>
+          <div className="page-title">Produkcja / powiązanie partii</div>
           <div className="page-sub">Dostęp: wszyscy użytkownicy</div>
         </div>
-        <div className="flex" style={{ flexWrap:'wrap', gap:6 }}>
-          <button className="btn btn-sm" onClick={exportPDF}>Drukuj raport ({filtered.length})</button>
-        </div>
+        <button className="btn btn-sm" onClick={exportPDF}>Drukuj raport ({filtered.length})</button>
       </div>
 
       {/* Filtry */}
@@ -164,15 +209,19 @@ export default function Produkcja() {
                   <div className="flex" style={{ gap:4 }}>
                     <button className="btn btn-sm" onClick={() => showDetail(b)}>Szczegóły</button>
                     <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
+                    {isAdmin && (
+                      <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>
+                    )}
                   </div>
                 </td>
               </tr>
             ))}
-            {!loading && filtered.length === 0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników dla wybranych filtrów</td></tr>}
+            {!loading && filtered.length === 0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
           </tbody>
         </table>
       </div>
 
+      {/* Szczegóły partii */}
       {detail && (
         <div className="card" style={{ borderLeft:'3px solid #1D9E75', marginTop:8 }}>
           <div className="flex" style={{ marginBottom:10, flexWrap:'wrap', gap:6 }}>
@@ -183,7 +232,9 @@ export default function Produkcja() {
             <span className="muted" style={{ marginLeft:'auto' }}>{detail.production_date} | {detail.quantity_kg} kg</span>
             <button className="btn btn-sm" onClick={() => { setDetail(null); setDetailItems([]) }}>Zamknij</button>
           </div>
-          <div className="muted" style={{ marginBottom:8 }}>Operator: {detail.operator || '—'} | Brygadzista: {detail.foreman || '—'} | Technolog: {detail.technologist || '—'}</div>
+          <div className="muted" style={{ marginBottom:8 }}>
+            Operator: {detail.operator || '—'} | Brygadzista: {detail.foreman || '—'} | Technolog: {detail.technologist || '—'}
+          </div>
           <div className="card-0">
             <table>
               <thead><tr><th>Kod skł.</th><th>Nazwa składnika</th><th>Partia dostawy</th><th>Użyto (kg)</th><th>FIFO</th><th>Alergen</th></tr></thead>
@@ -203,6 +254,55 @@ export default function Produkcja() {
           </div>
         </div>
       )}
+
+      {/* Modal edycji — tylko Admin */}
+      <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
+        <div className="modal">
+          <div className="modal-title">Edycja partii produkcyjnej</div>
+          <div className="info-box" style={{ marginBottom:10 }}>
+            Edycja dostępna tylko dla Admina. Zmiana daty i danych nie wpływa na powiązane partie składników.
+          </div>
+          {editError && <div className="err-box">{editError}</div>}
+          <div className="fr">
+            <div><label>Data produkcji *</label>
+              <input type="date" value={editForm.production_date || ''} onChange={e => ef('production_date', e.target.value)} />
+            </div>
+            <div><label>Ilość (kg) *</label>
+              <input type="number" step="0.001" value={editForm.quantity_kg || ''} onChange={e => ef('quantity_kg', e.target.value)} />
+            </div>
+          </div>
+          <div className="fr">
+            <div><label>Operator</label>
+              <input value={editForm.operator || ''} onChange={e => ef('operator', e.target.value)} placeholder="Imię, nazwisko" />
+            </div>
+            <div><label>Brygadzista</label>
+              <input value={editForm.foreman || ''} onChange={e => ef('foreman', e.target.value)} placeholder="Imię, nazwisko" />
+            </div>
+          </div>
+          <div className="fr">
+            <div><label>Technolog</label>
+              <input value={editForm.technologist || ''} onChange={e => ef('technologist', e.target.value)} placeholder="Imię, nazwisko" />
+            </div>
+            <div><label>Status</label>
+              <select value={editForm.status || 'wyprodukowana'} onChange={e => ef('status', e.target.value)}>
+                <option value="w_trakcie">W trakcie</option>
+                <option value="wyprodukowana">Wyprodukowana</option>
+                <option value="wstrzymana">Wstrzymana</option>
+                <option value="wydana">Wydana</option>
+              </select>
+            </div>
+          </div>
+          <div><label>Uwagi</label>
+            <input value={editForm.notes || ''} onChange={e => ef('notes', e.target.value)} placeholder="opcjonalne" />
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setEditModal(false)}>Anuluj</button>
+            <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>
+              {saving ? 'Zapisywanie...' : 'Zapisz zmiany'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
