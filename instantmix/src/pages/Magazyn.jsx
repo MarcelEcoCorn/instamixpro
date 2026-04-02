@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
@@ -491,7 +491,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
             {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:32, color:'#888' }}><span className="spinner" /> Obliczam stany...</td></tr>}
             {!loading && filtered.length===0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
             {!loading && filtered.map(r => (
-              <>
+              <React.Fragment key={r.id}>
                 <tr key={r.id} style={alertRowStyle(r)}>
                   <td style={{ textAlign:'center' }}>
                     <button onClick={() => loadBatchDetails(r.id)}
@@ -575,7 +575,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -589,6 +589,3 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
     </div>
   )
 }
-
-exit code 0
-Done
