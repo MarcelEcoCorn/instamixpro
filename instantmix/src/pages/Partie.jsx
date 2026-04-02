@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_BATCH = { ingredient_id:'', supplier_name:'', delivery_lot:'', production_date:'', expiry_date:'', received_date: new Date().toISOString().slice(0,10), quantity_kg:'', invoice_number:'', unit_price_pln:'', warehouse_location:'', status:'dopuszczona' }
+const EMPTY_BATCH = { ingredient_id:'', supplier_name:'', spec_number:'', spec_approved_at:'', delivery_lot:'', production_date:'', expiry_date:'', received_date: new Date().toISOString().slice(0,10), quantity_kg:'', invoice_number:'', unit_price_pln:'', warehouse_location:'', status:'dopuszczona' }
 const EMPTY_CORR = { correction_type:'ubytek_uszkodzenie', delta_kg:'', reason:'', event_date: new Date().toISOString().slice(0,10) }
 const CORR_LABELS = { ubytek_uszkodzenie:'Ubytek / uszkodzenie', utylizacja_pelna:'Utylizacja (pełna)', korekta_inwentury:'Korekta inwentury', niedowazenie_dostawy:'Niedoważenie dostawy', zwrot_do_dostawcy:'Zwrot do dostawcy' }
 
@@ -81,6 +81,8 @@ export default function Partie() {
       unit_price_pln: form.unit_price_pln ? parseFloat(form.unit_price_pln) : null,
       total_value_pln: totalValue ? parseFloat(totalValue) : null,
       supplier_name: form.supplier_name || null,
+      spec_number: form.spec_number || null,
+      spec_approved_at: form.spec_approved_at || null,
       created_by: profile?.id
     })
     setSaving(false)
@@ -89,7 +91,7 @@ export default function Partie() {
   }
 
   function openEdit(batch) {
-    setEditForm({ id:batch.id, delivery_lot:batch.delivery_lot, production_date:batch.production_date||'', expiry_date:batch.expiry_date||'', received_date:batch.received_date||'', quantity_kg:batch.quantity_kg, invoice_number:batch.invoice_number||'', unit_price_pln:batch.unit_price_pln||'', warehouse_location:batch.warehouse_location||'', status:batch.status })
+    setEditForm({ id:batch.id, delivery_lot:batch.delivery_lot, supplier_name:batch.supplier_name||'', spec_number:batch.spec_number||'', spec_approved_at:batch.spec_approved_at||'', production_date:batch.production_date||'', expiry_date:batch.expiry_date||'', received_date:batch.received_date||'', quantity_kg:batch.quantity_kg, invoice_number:batch.invoice_number||'', unit_price_pln:batch.unit_price_pln||'', warehouse_location:batch.warehouse_location||'', status:batch.status })
     setError(''); setEditModal(true)
   }
 
@@ -98,7 +100,7 @@ export default function Partie() {
     setSaving(true); setError('')
     const totalValue = editForm.unit_price_pln && editForm.quantity_kg ? (parseFloat(editForm.unit_price_pln) * parseFloat(editForm.quantity_kg)).toFixed(2) : null
     const { error: err } = await supabase.from('ingredient_batches').update({
-      delivery_lot:editForm.delivery_lot, production_date:editForm.production_date||null, expiry_date:editForm.expiry_date||null, received_date:editForm.received_date||null, quantity_kg:parseFloat(editForm.quantity_kg), invoice_number:editForm.invoice_number||null, unit_price_pln:editForm.unit_price_pln?parseFloat(editForm.unit_price_pln):null, total_value_pln:totalValue?parseFloat(totalValue):null, warehouse_location:editForm.warehouse_location||null, status:editForm.status, updated_at:new Date().toISOString()
+      delivery_lot:editForm.delivery_lot, supplier_name:editForm.supplier_name||null, spec_number:editForm.spec_number||null, spec_approved_at:editForm.spec_approved_at||null, production_date:editForm.production_date||null, expiry_date:editForm.expiry_date||null, received_date:editForm.received_date||null, quantity_kg:parseFloat(editForm.quantity_kg), invoice_number:editForm.invoice_number||null, unit_price_pln:editForm.unit_price_pln?parseFloat(editForm.unit_price_pln):null, total_value_pln:totalValue?parseFloat(totalValue):null, warehouse_location:editForm.warehouse_location||null, status:editForm.status, updated_at:new Date().toISOString()
     }).eq('id', editForm.id)
     setSaving(false)
     if (err) { setError(err.message); return }
@@ -210,6 +212,10 @@ export default function Partie() {
             <div><label>Nr partii dostawy / atestu *</label><input value={form.delivery_lot} onChange={e => f('delivery_lot',e.target.value)} placeholder="AT-2025-XXXX" /></div>
             <div><label>Nr faktury</label><input value={form.invoice_number} onChange={e => f('invoice_number',e.target.value)} placeholder="FV/2025/XXXX" /></div>
           </div>
+          <div className="fr">
+            <div><label>Nr specyfikacji</label><input value={form.spec_number} onChange={e => f('spec_number',e.target.value)} placeholder="SPEC-2025-XXX" /></div>
+            <div><label>Data zatwierdzenia specyfikacji</label><input type="date" value={form.spec_approved_at} onChange={e => f('spec_approved_at',e.target.value)} /></div>
+          </div>
           <div className="fr3">
             <div><label>Data produkcji</label><input type="date" value={form.production_date} onChange={e => f('production_date',e.target.value)} /></div>
             <div><label>Data ważności</label><input type="date" value={form.expiry_date} onChange={e => f('expiry_date',e.target.value)} /></div>
@@ -248,8 +254,16 @@ export default function Partie() {
           <div className="info-box" style={{ marginBottom:10 }}>Edycja dostępna tylko dla Admina.</div>
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
-            <div><label>Nr partii dostawy *</label><input value={editForm.delivery_lot||''} onChange={e => ef('delivery_lot',e.target.value)} /></div>
+            <div><label>Dostawca</label><input value={editForm.supplier_name||''} onChange={e => ef('supplier_name',e.target.value)} placeholder="np. StarChem Sp. z o.o." /></div>
             <div><label>Nr faktury</label><input value={editForm.invoice_number||''} onChange={e => ef('invoice_number',e.target.value)} /></div>
+          </div>
+          <div className="fr">
+            <div><label>Nr specyfikacji</label><input value={editForm.spec_number||''} onChange={e => ef('spec_number',e.target.value)} placeholder="SPEC-2025-XXX" /></div>
+            <div><label>Data zatwierdzenia specyfikacji</label><input type="date" value={editForm.spec_approved_at||''} onChange={e => ef('spec_approved_at',e.target.value)} /></div>
+          </div>
+          <div className="fr">
+            <div><label>Nr partii dostawy *</label><input value={editForm.delivery_lot||''} onChange={e => ef('delivery_lot',e.target.value)} /></div>
+            <div><label>Lokalizacja magazynowa</label><input value={editForm.warehouse_location||''} onChange={e => ef('warehouse_location',e.target.value)} /></div>
           </div>
           <div className="fr3">
             <div><label>Data produkcji</label><input type="date" value={editForm.production_date||''} onChange={e => ef('production_date',e.target.value)} /></div>
@@ -259,7 +273,6 @@ export default function Partie() {
           <div className="fr3">
             <div><label>Ilość (kg)</label><input type="number" step="0.001" value={editForm.quantity_kg||''} onChange={e => ef('quantity_kg',e.target.value)} /></div>
             <div><label>Cena za kg (PLN)</label><input type="number" step="0.0001" value={editForm.unit_price_pln||''} onChange={e => ef('unit_price_pln',e.target.value)} /></div>
-            <div><label>Lokalizacja</label><input value={editForm.warehouse_location||''} onChange={e => ef('warehouse_location',e.target.value)} /></div>
           </div>
           <div><label>Status</label>
             <select value={editForm.status||'dopuszczona'} onChange={e => ef('status',e.target.value)}>
