@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
 const EMPTY_ING = { code:'', name:'', status:'aktywny' }
-const EMPTY_SUP = { supplier_name:'', producer_name:'', country_of_origin:'', has_allergen:false, allergen_type:'', gmo:false, spec_number:'', spec_approved_at:'', is_active:true }
 
 export default function Skladniki() {
   const { profile } = useAuth()
@@ -19,10 +18,6 @@ export default function Skladniki() {
   const [ingForm, setIngForm] = useState(EMPTY_ING)
   const [ingEdit, setIngEdit] = useState(false)
 
-  const [supModal, setSupModal] = useState(false)
-  const [supForm, setSupForm] = useState(EMPTY_SUP)
-  const [supEdit, setSupEdit] = useState(false)
-  const [supIngId, setSupIngId] = useState(null)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -38,18 +33,42 @@ export default function Skladniki() {
   }
 
   async function loadSuppliers(ingredientId) {
-    if (suppliers[ingredientId]) {
-      setExpandedId(expandedId === ingredientId ? null : ingredientId)
-      return
+    if (expandedId === ingredientId) { setExpandedId(null); return }
+    // Zaczytaj unikalnych dostawców z historii przyjęć
+    const { data } = await supabase
+      .from('ingredient_batches')
+      .select('supplier_name, invoice_number, received_date, quantity_kg, delivery_lot')
+      .eq('ingredient_id', ingredientId)
+      .not('supplier_name', 'is', null)
+      .order('received_date', { ascending: false })
+    // Grupuj po nazwie dostawcy
+    const grouped = {}
+    for (const b of (data || [])) {
+      const key = b.supplier_name
+      if (!grouped[key]) grouped[key] = { supplier_name: key, deliveries: 0, last_delivery: b.received_date, total_kg: 0 }
+      grouped[key].deliveries++
+      grouped[key].total_kg += parseFloat(b.quantity_kg || 0)
+      if (b.received_date > grouped[key].last_delivery) grouped[key].last_delivery = b.received_date
     }
-    const { data } = await supabase.from('ingredient_suppliers').select('*').eq('ingredient_id', ingredientId).order('supplier_name')
-    setSuppliers(p => ({ ...p, [ingredientId]: data || [] }))
+    setSuppliers(p => ({ ...p, [ingredientId]: Object.values(grouped) }))
     setExpandedId(ingredientId)
   }
 
   async function refreshSuppliers(ingredientId) {
-    const { data } = await supabase.from('ingredient_suppliers').select('*').eq('ingredient_id', ingredientId).order('supplier_name')
-    setSuppliers(p => ({ ...p, [ingredientId]: data || [] }))
+    const { data } = await supabase
+      .from('ingredient_batches')
+      .select('supplier_name, received_date, quantity_kg')
+      .eq('ingredient_id', ingredientId)
+      .not('supplier_name', 'is', null)
+      .order('received_date', { ascending: false })
+    const grouped = {}
+    for (const b of (data || [])) {
+      const key = b.supplier_name
+      if (!grouped[key]) grouped[key] = { supplier_name: key, deliveries: 0, last_delivery: b.received_date, total_kg: 0 }
+      grouped[key].deliveries++
+      grouped[key].total_kg += parseFloat(b.quantity_kg || 0)
+    }
+    setSuppliers(p => ({ ...p, [ingredientId]: Object.values(grouped) }))
   }
 
   const filtered = ingredients.filter(r =>
@@ -57,7 +76,6 @@ export default function Skladniki() {
   )
 
   const f = (k, v) => setIngForm(p => ({ ...p, [k]: v }))
-  const sf = (k, v) => setSupForm(p => ({ ...p, [k]: v }))
 
   function openNewIng() { setIngForm(EMPTY_ING); setIngEdit(false); setError(''); setIngModal(true) }
   function openEditIng(ing) { setIngForm({ id: ing.id, code: ing.code, name: ing.name, status: ing.status }); setIngEdit(true); setError(''); setIngModal(true) }
@@ -80,33 +98,6 @@ export default function Skladniki() {
     setConfirmDelete(null); load()
   }
 
-  function openNewSup(ingredientId) {
-    setSupIngId(ingredientId); setSupForm(EMPTY_SUP); setSupEdit(false); setError(''); setSupModal(true)
-  }
-  function openEditSup(sup, ingredientId) {
-    setSupIngId(ingredientId)
-    setSupForm({ id: sup.id, supplier_name: sup.supplier_name, producer_name: sup.producer_name || '', country_of_origin: sup.country_of_origin || '', has_allergen: sup.has_allergen, allergen_type: sup.allergen_type || '', gmo: sup.gmo, spec_number: sup.spec_number || '', spec_approved_at: sup.spec_approved_at || '', is_active: sup.is_active })
-    setSupEdit(true); setError(''); setSupModal(true)
-  }
-
-  async function saveSup() {
-    if (!supForm.supplier_name) { setError('Nazwa dostawcy jest wymagana'); return }
-    setSaving(true); setError('')
-    const payload = { ingredient_id: supIngId, supplier_name: supForm.supplier_name, producer_name: supForm.producer_name || null, country_of_origin: supForm.country_of_origin || null, has_allergen: supForm.has_allergen, allergen_type: supForm.has_allergen ? (supForm.allergen_type || null) : null, gmo: supForm.gmo, spec_number: supForm.spec_number || null, spec_approved_at: supForm.spec_approved_at || null, is_active: supForm.is_active, updated_at: new Date().toISOString() }
-    if (supEdit) {
-      const { error: err } = await supabase.from('ingredient_suppliers').update(payload).eq('id', supForm.id)
-      if (err) { setError(err.message); setSaving(false); return }
-    } else {
-      const { error: err } = await supabase.from('ingredient_suppliers').insert(payload)
-      if (err) { setError(err.message); setSaving(false); return }
-    }
-    setSaving(false); setSupModal(false); refreshSuppliers(supIngId)
-  }
-
-  async function deleteSup(sup, ingredientId) {
-    await supabase.from('ingredient_suppliers').delete().eq('id', sup.id)
-    refreshSuppliers(ingredientId)
-  }
 
   return (
     <div>
@@ -156,37 +147,25 @@ export default function Skladniki() {
                     <td colSpan={6} style={{ padding: 0, background: '#F9F8F5' }}>
                       <div style={{ padding: '10px 16px 12px 40px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ fontSize: 12, fontWeight: 500, color: '#0F6E56' }}>Dostawcy — {ing.name}</span>
-                          {isAdmin && <button className="btn btn-sm btn-primary" onClick={() => openNewSup(ing.id)}>+ Dodaj dostawcę</button>}
+                          <span style={{ fontSize: 12, fontWeight: 500, color: '#0F6E56' }}>Dostawcy z przyjęć — {ing.name}</span>
                         </div>
                         {!suppliers[ing.id] || suppliers[ing.id].length === 0 ? (
-                          <div className="muted" style={{ fontSize: 12 }}>Brak dostawców — dodaj pierwszego dostawcę</div>
+                          <div className="muted" style={{ fontSize: 12 }}>Brak przyjęć z przypisanym dostawcą</div>
                         ) : (
-                          <table style={{ width: '100%' }}>
+                          <table style={{ width: 'auto', minWidth: 500 }}>
                             <thead><tr>
-                              <th>Dostawca</th><th>Producent</th><th>Kraj</th>
-                              <th>Alergen</th><th>GMO</th><th>Nr spec.</th><th>Data zatw.</th><th>Status</th>
-                              {isAdmin && <th></th>}
+                              <th>Dostawca</th>
+                              <th style={{ textAlign:'center' }}>Liczba dostaw</th>
+                              <th style={{ textAlign:'right' }}>Łącznie (kg)</th>
+                              <th>Ostatnia dostawa</th>
                             </tr></thead>
                             <tbody>
-                              {suppliers[ing.id].map(sup => (
-                                <tr key={sup.id}>
+                              {suppliers[ing.id].map((sup, idx) => (
+                                <tr key={idx}>
                                   <td style={{ fontWeight: 500 }}>{sup.supplier_name}</td>
-                                  <td className="muted">{sup.producer_name || '—'}</td>
-                                  <td className="muted">{sup.country_of_origin || '—'}</td>
-                                  <td>{sup.has_allergen ? <span className="badge b-err">{sup.allergen_type}</span> : <span className="muted">Brak</span>}</td>
-                                  <td>{sup.gmo ? <span className="badge b-warn">TAK</span> : <span className="badge b-ok">NIE</span>}</td>
-                                  <td className="muted">{sup.spec_number || '—'}</td>
-                                  <td className="muted">{sup.spec_approved_at || '—'}</td>
-                                  <td><span className={`badge ${sup.is_active ? 'b-ok' : 'b-gray'}`}>{sup.is_active ? 'Aktywny' : 'Nieaktywny'}</span></td>
-                                  {isAdmin && (
-                                    <td>
-                                      <div className="flex" style={{ gap: 4 }}>
-                                        <button className="btn btn-sm" onClick={() => openEditSup(sup, ing.id)}>Edytuj</button>
-                                        <button className="btn btn-sm btn-danger" onClick={() => deleteSup(sup, ing.id)}>Usuń</button>
-                                      </div>
-                                    </td>
-                                  )}
+                                  <td style={{ textAlign:'center' }}><span className="badge b-info">{sup.deliveries}</span></td>
+                                  <td style={{ textAlign:'right', fontWeight:500 }}>{sup.total_kg.toFixed(3)} kg</td>
+                                  <td className="muted">{sup.last_delivery}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -224,46 +203,6 @@ export default function Skladniki() {
         </div>
       </div>
 
-      {/* Modal dostawca */}
-      <div className={`modal-overlay ${supModal ? 'open' : ''}`} onClick={e => e.target === e.currentTarget && setSupModal(false)}>
-        <div className="modal">
-          <div className="modal-title">{supEdit ? 'Edytuj dostawcę' : 'Nowy dostawca'}</div>
-          {error && <div className="err-box">{error}</div>}
-          <div className="fr">
-            <div><label>Nazwa dostawcy *</label><input value={supForm.supplier_name} onChange={e => sf('supplier_name', e.target.value)} placeholder="np. StarChem Sp. z o.o." /></div>
-            <div><label>Producent</label><input value={supForm.producer_name} onChange={e => sf('producer_name', e.target.value)} placeholder="np. ChemCorp GmbH" /></div>
-          </div>
-          <div className="fr3">
-            <div><label>Kraj pochodzenia</label><input value={supForm.country_of_origin} onChange={e => sf('country_of_origin', e.target.value)} placeholder="np. PL, DE, NL" /></div>
-            <div><label>Alergen</label>
-              <select value={supForm.has_allergen ? 'tak' : 'nie'} onChange={e => sf('has_allergen', e.target.value === 'tak')}>
-                <option value="nie">NIE</option><option value="tak">TAK</option>
-              </select>
-            </div>
-            <div><label>GMO</label>
-              <select value={supForm.gmo ? 'tak' : 'nie'} onChange={e => sf('gmo', e.target.value === 'tak')}>
-                <option value="nie">NIE</option><option value="tak">TAK</option>
-              </select>
-            </div>
-          </div>
-          {supForm.has_allergen && (
-            <div style={{ marginBottom: 10 }}><label>Typ alergenu</label><input value={supForm.allergen_type} onChange={e => sf('allergen_type', e.target.value)} placeholder="np. Gluten, Mleko, Orzechy" /></div>
-          )}
-          <div className="fr">
-            <div><label>Nr specyfikacji</label><input value={supForm.spec_number} onChange={e => sf('spec_number', e.target.value)} placeholder="SPEC-2025-XXX" /></div>
-            <div><label>Data zatwierdzenia spec.</label><input type="date" value={supForm.spec_approved_at} onChange={e => sf('spec_approved_at', e.target.value)} /></div>
-          </div>
-          <div><label>Status dostawcy</label>
-            <select value={supForm.is_active ? 'tak' : 'nie'} onChange={e => sf('is_active', e.target.value === 'tak')}>
-              <option value="tak">Aktywny</option><option value="nie">Nieaktywny</option>
-            </select>
-          </div>
-          <div className="modal-footer">
-            <button className="btn" onClick={() => setSupModal(false)}>Anuluj</button>
-            <button className="btn btn-primary" onClick={saveSup} disabled={saving}>{saving ? 'Zapisywanie...' : 'Zapisz dostawcę'}</button>
-          </div>
-        </div>
-      </div>
 
       {/* Potwierdzenie usunięcia */}
       <div className={`modal-overlay ${confirmDelete ? 'open' : ''}`} onClick={e => e.target === e.currentTarget && setConfirmDelete(null)}>
