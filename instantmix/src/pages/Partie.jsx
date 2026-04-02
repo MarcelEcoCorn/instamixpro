@@ -34,7 +34,7 @@ export default function Partie() {
   async function load() {
     setLoading(true)
     const [{ data: b }, { data: i }, { data: c }] = await Promise.all([
-      supabase.from('ingredient_batches').select('*, ingredients(code,name), ingredient_suppliers(supplier_name)').order('received_date', { ascending: false }),
+      supabase.from('ingredient_batches').select('*, ingredients(code,name)').order('received_date', { ascending: false }),
       supabase.from('ingredients').select('id,code,name').eq('status','aktywny').order('code'),
       supabase.from('stock_corrections').select('*').order('created_at', { ascending: false })
     ])
@@ -156,7 +156,7 @@ export default function Partie() {
                   <tr style={{ background: hasCorr ? '#FAEEDA22' : undefined }}>
                     <td><span className="lot">{b.ingredients?.code}</span></td>
                     <td style={{ fontWeight:500 }}>{b.ingredients?.name}</td>
-                    <td className="muted" style={{ fontSize:12 }}>{b.ingredient_suppliers?.supplier_name || '—'}</td>
+                    <td className="muted" style={{ fontSize:12 }}>{b.supplier_name || '—'}</td>
                     <td><span className="lot">{b.delivery_lot}</span>{hasCorr && <span className="badge b-warn" style={{ marginLeft:4, fontSize:10 }}>korekta</span>}</td>
                     <td className="muted">{b.production_date||'—'}</td>
                     <td className="muted" style={{ color:isExpiring?'#BA7517':undefined }}>{b.expiry_date||'—'}</td>
