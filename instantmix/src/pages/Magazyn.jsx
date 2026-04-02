@@ -134,17 +134,24 @@ export default function Magazyn() {
   }
 
   function setMiesiac() {
-    const d = new Date()
-    const first = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10)
-    const last = new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10)
+    const now = new Date()
+    const y = now.getFullYear()
+    const m = now.getMonth()
+    const first = `${y}-${String(m+1).padStart(2,'0')}-01`
+    const lastDay = new Date(y, m+1, 0).getDate()
+    const last = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
     setBilansDat1(first); setBilansDat2(last); setBilansMode('miesiac')
   }
 
   function setKwartal() {
-    const d = new Date()
-    const q = Math.floor(d.getMonth()/3)
-    const first = new Date(d.getFullYear(), q*3, 1).toISOString().slice(0,10)
-    const last = new Date(d.getFullYear(), q*3+3, 0).toISOString().slice(0,10)
+    const now = new Date()
+    const y = now.getFullYear()
+    const q = Math.floor(now.getMonth()/3)
+    const firstMonth = q*3+1
+    const lastMonth = q*3+3
+    const first = `${y}-${String(firstMonth).padStart(2,'0')}-01`
+    const lastDay = new Date(y, lastMonth, 0).getDate()
+    const last = `${y}-${String(lastMonth).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
     setBilansDat1(first); setBilansDat2(last); setBilansMode('kwartal')
   }
 
