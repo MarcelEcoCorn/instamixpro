@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_BATCH = { ingredient_id:'', supplier_id:'', delivery_lot:'', production_date:'', expiry_date:'', received_date: new Date().toISOString().slice(0,10), quantity_kg:'', invoice_number:'', unit_price_pln:'', warehouse_location:'', status:'dopuszczona' }
+const EMPTY_BATCH = { ingredient_id:'', supplier_name:'', delivery_lot:'', production_date:'', expiry_date:'', received_date: new Date().toISOString().slice(0,10), quantity_kg:'', invoice_number:'', unit_price_pln:'', warehouse_location:'', status:'dopuszczona' }
 const EMPTY_CORR = { correction_type:'ubytek_uszkodzenie', delta_kg:'', reason:'', event_date: new Date().toISOString().slice(0,10) }
 const CORR_LABELS = { ubytek_uszkodzenie:'Ubytek / uszkodzenie', utylizacja_pelna:'Utylizacja (pełna)', korekta_inwentury:'Korekta inwentury', niedowazenie_dostawy:'Niedoważenie dostawy', zwrot_do_dostawcy:'Zwrot do dostawcy' }
 
@@ -25,7 +25,6 @@ export default function Partie() {
   const [form, setForm] = useState(EMPTY_BATCH)
   const [editForm, setEditForm] = useState({})
   const [corrForm, setCorrForm] = useState(EMPTY_CORR)
-  const [availableSuppliers, setAvailableSuppliers] = useState([])
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -43,12 +42,6 @@ export default function Partie() {
     setIngredients(i || [])
     setCorrections(c || [])
     setLoading(false)
-  }
-
-  async function loadSuppliers(ingredientId) {
-    if (!ingredientId) { setAvailableSuppliers([]); return }
-    const { data } = await supabase.from('ingredient_suppliers').select('id,supplier_name,producer_name').eq('ingredient_id', ingredientId).eq('is_active', true).order('supplier_name')
-    setAvailableSuppliers(data || [])
   }
 
   function effectiveQty(batch) {
@@ -87,7 +80,7 @@ export default function Partie() {
       quantity_kg: parseFloat(form.quantity_kg),
       unit_price_pln: form.unit_price_pln ? parseFloat(form.unit_price_pln) : null,
       total_value_pln: totalValue ? parseFloat(totalValue) : null,
-      supplier_id: form.supplier_id || null,
+      supplier_name: form.supplier_name || null,
       created_by: profile?.id
     })
     setSaving(false)
@@ -133,7 +126,7 @@ export default function Partie() {
         <div><div className="page-title">Przyjęcie składników</div><div className="page-sub">Dostęp: Admin, Technolog</div></div>
         <div className="flex">
           <input className="search" placeholder="Szukaj partii..." value={search} onChange={e => setSearch(e.target.value)} style={{ width:220 }} />
-          <button className="btn btn-primary btn-sm" onClick={() => { setForm(EMPTY_BATCH); setAvailableSuppliers([]); setError(''); setModal(true) }}>+ Przyjęcie dostawy</button>
+          <button className="btn btn-primary btn-sm" onClick={() => { setForm(EMPTY_BATCH); setError(''); setModal(true) }}>+ Przyjęcie dostawy</button>
         </div>
       </div>
 
@@ -204,16 +197,13 @@ export default function Partie() {
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
             <div><label>Składnik *</label>
-              <select value={form.ingredient_id} onChange={e => { f('ingredient_id', e.target.value); f('supplier_id',''); loadSuppliers(e.target.value) }}>
+              <select value={form.ingredient_id} onChange={e => f('ingredient_id', e.target.value)}>
                 <option value="">— wybierz składnik —</option>
                 {ingredients.map(i => <option key={i.id} value={i.id}>{i.code} — {i.name}</option>)}
               </select>
             </div>
             <div><label>Dostawca</label>
-              <select value={form.supplier_id} onChange={e => f('supplier_id', e.target.value)} disabled={!form.ingredient_id}>
-                <option value="">— wybierz dostawcę —</option>
-                {availableSuppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name}{s.producer_name ? ` (${s.producer_name})`:''}</option>)}
-              </select>
+              <input value={form.supplier_name} onChange={e => f('supplier_name', e.target.value)} placeholder="np. StarChem Sp. z o.o." />
             </div>
           </div>
           <div className="fr">
