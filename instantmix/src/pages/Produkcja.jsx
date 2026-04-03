@@ -88,46 +88,81 @@ export default function Produkcja() {
   async function recalcFIFO(batch) {
     setRecalcId(batch.id); setRecalcMsg('Pobieram recepturę...')
     try {
-      // 1. Pobierz recepturę z pozycjami
+      // 1. Pobierz recipe_id z production_batches bezpośrednio
+      const { data: pb } = await supabase
+        .from('production_batches')
+        .select('recipe_id, quantity_kg')
+        .eq('id', batch.id)
+        .single()
+      if (!pb?.recipe_id) throw new Error('Nie znaleziono receptury dla tej partii')
+
       const { data: recipe } = await supabase
         .from('recipes')
-        .select('*, recipe_items(*, ingredients(id,code,name,has_allergen,allergen_type))')
-        .eq('id', batch.recipe_id)
+        .select('*, recipe_items(*, ingredients(id,code,name))')
+        .eq('id', pb.recipe_id)
         .single()
       if (!recipe) throw new Error('Nie znaleziono receptury')
 
+      setRecalcMsg('Pobieram stan magazynu...')
+
+      // 2. Pobierz aktualne zużycie przez INNE partie (nie tę którą przeliczamy)
+      const { data: otherUsed } = await supabase
+        .from('production_batch_items')
+        .select('ingredient_batch_id, quantity_used_kg')
+        .neq('production_batch_id', batch.id)
+
+      // Sumuj zużycie per partia składnika
+      const usedMap = {}
+      for (const u of (otherUsed||[])) {
+        usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
+      }
+
+      // 3. Pobierz stan z v_stock (current_kg uwzględnia korekty)
+      const { data: stockAll } = await supabase
+        .from('v_stock')
+        .select('*')
+        .eq('status', 'dopuszczona')
+        .order('received_date', { ascending: true })
+
+      // Oblicz dostępne ilości = current_kg - zużyto przez inne partie
+      const availableMap = {}
+      for (const s of (stockAll||[])) {
+        const used = usedMap[s.id]||0
+        const avail = parseFloat(s.current_kg) - used
+        if (avail > 0.001) {
+          if (!availableMap[s.ingredient_id]) availableMap[s.ingredient_id] = []
+          availableMap[s.ingredient_id].push({ ...s, available: parseFloat(avail.toFixed(3)) })
+        }
+      }
+
       setRecalcMsg('Obliczam FIFO...')
-      const mass = parseFloat(batch.quantity_kg)
+      const mass = parseFloat(pb.quantity_kg)
       const newItems = []
 
       for (const item of (recipe.recipe_items||[]).sort((a,b) => a.sort_order-b.sort_order)) {
         const needed = parseFloat(((mass * item.percentage) / 100).toFixed(3))
-        const { data: stockRows } = await supabase
-          .from('v_fifo_stock')
-          .select('*')
-          .eq('ingredient_id', item.ingredient_id)
-          .gt('current_kg', 0)
+        const rows = availableMap[item.ingredient_id] || []
 
         let remaining = needed
         let fifoOrder = 1
-        for (const row of (stockRows||[])) {
-          if (remaining <= 0) break
-          const take = Math.min(remaining, parseFloat(row.current_kg))
-          newItems.push({
-            production_batch_id: batch.id,
-            ingredient_batch_id: row.id,
-            ingredient_id: item.ingredient_id,
-            quantity_used_kg: parseFloat(take.toFixed(3)),
-            fifo_order: fifoOrder++
-          })
-          remaining = parseFloat((remaining - take).toFixed(3))
+        for (const row of rows) {
+          if (remaining <= 0.001) break
+          const take = Math.min(remaining, row.available)
+          if (take > 0.001) {
+            newItems.push({
+              production_batch_id: batch.id,
+              ingredient_batch_id: row.id,
+              ingredient_id: item.ingredient_id,
+              quantity_used_kg: parseFloat(take.toFixed(3)),
+              fifo_order: fifoOrder++
+            })
+            remaining = parseFloat((remaining - take).toFixed(3))
+          }
         }
       }
 
       setRecalcMsg('Zapisuję nowe powiązania...')
-      // 2. Usuń stare powiązania
       await supabase.from('production_batch_items').delete().eq('production_batch_id', batch.id)
-      // 3. Zapisz nowe
       if (newItems.length > 0) {
         await supabase.from('production_batch_items').insert(newItems)
       }
