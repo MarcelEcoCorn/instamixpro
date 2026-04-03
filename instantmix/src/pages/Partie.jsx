@@ -12,7 +12,6 @@ export default function Partie() {
 
   const [batches, setBatches] = useState([])
   const [ingredients, setIngredients] = useState([])
-  const [suppliersMap, setSuppliersMap] = useState({})
   const [corrections, setCorrections] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -20,11 +19,13 @@ export default function Partie() {
   const [modal, setModal] = useState(false)
   const [editModal, setEditModal] = useState(false)
   const [corrModal, setCorrModal] = useState(false)
+  const [editCorrModal, setEditCorrModal] = useState(false)
 
   const [selectedBatch, setSelectedBatch] = useState(null)
   const [form, setForm] = useState(EMPTY_BATCH)
   const [editForm, setEditForm] = useState({})
   const [corrForm, setCorrForm] = useState(EMPTY_CORR)
+  const [editCorrForm, setEditCorrForm] = useState({})
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -65,11 +66,7 @@ export default function Partie() {
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
   const ef = (k, v) => setEditForm(p => ({ ...p, [k]: v }))
   const cf = (k, v) => setCorrForm(p => ({ ...p, [k]: v }))
-
-  function calcUnitPrice(qty, total) {
-    if (!qty || !total || parseFloat(qty) === 0) return ''
-    return (parseFloat(total) / parseFloat(qty)).toFixed(4)
-  }
+  const ecf = (k, v) => setEditCorrForm(p => ({ ...p, [k]: v }))
 
   async function saveBatch() {
     if (!form.ingredient_id || !form.delivery_lot || !form.quantity_kg) { setError('Uzupełnij wymagane pola'); return }
@@ -118,6 +115,31 @@ export default function Partie() {
     setSaving(false)
     if (err) { setError(err.message); return }
     setCorrModal(false); load()
+  }
+
+  function openEditCorr(corr) {
+    setEditCorrForm({ id: corr.id, correction_type: corr.correction_type, delta_kg: corr.delta_kg, reason: corr.reason, event_date: corr.event_date })
+    setError(''); setEditCorrModal(true)
+  }
+
+  async function saveEditCorr() {
+    if (!editCorrForm.reason) { setError('Podaj przyczynę korekty'); return }
+    setSaving(true); setError('')
+    const { error: err } = await supabase.from('stock_corrections').update({
+      correction_type: editCorrForm.correction_type,
+      delta_kg: parseFloat(editCorrForm.delta_kg),
+      reason: editCorrForm.reason,
+      event_date: editCorrForm.event_date
+    }).eq('id', editCorrForm.id)
+    setSaving(false)
+    if (err) { setError(err.message); return }
+    setEditCorrModal(false); load()
+  }
+
+  async function deleteCorr(corrId) {
+    if (!window.confirm('Czy na pewno chcesz usunąć tę korektę? Operacja jest nieodwracalna.')) return
+    await supabase.from('stock_corrections').delete().eq('id', corrId)
+    load()
   }
 
   const batchCorrections = selectedBatch ? corrections.filter(c => c.ingredient_batch_id===selectedBatch.id) : []
@@ -179,10 +201,18 @@ export default function Partie() {
                   {corrs.map(c => (
                     <tr key={c.id} style={{ background:'#F9F8F5', fontSize:11 }}>
                       <td colSpan={2} style={{ paddingLeft:24, color:'#888' }}>{CORR_LABELS[c.correction_type]}</td>
-                      <td colSpan={4} style={{ color:'#888' }}>{c.reason}</td>
-                      <td><span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span></td>
+                      <td colSpan={3} style={{ color:'#888' }}>{c.reason}</td>
                       <td className="muted">{c.event_date}</td>
-                      <td colSpan={4}></td>
+                      <td><span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span></td>
+                      <td colSpan={3}></td>
+                      <td colSpan={2}>
+                        {isAdmin && (
+                          <div className="flex" style={{ gap:4 }}>
+                            <button className="btn btn-sm" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => openEditCorr(c)}>Edytuj</button>
+                            <button className="btn btn-sm btn-danger" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => deleteCorr(c.id)}>Usuń</button>
+                          </div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </React.Fragment>
@@ -247,7 +277,7 @@ export default function Partie() {
         </div>
       </div>
 
-      {/* Modal edycja */}
+      {/* Modal edycja przyjęcia */}
       <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
         <div className="modal">
           <div className="modal-title">Edycja przyjęcia dostawy</div>
@@ -288,7 +318,7 @@ export default function Partie() {
         </div>
       </div>
 
-      {/* Modal korekta */}
+      {/* Modal nowa korekta */}
       <div className={`modal-overlay ${corrModal?'open':''}`} onClick={e => e.target===e.currentTarget && setCorrModal(false)}>
         <div className="modal">
           <div className="modal-title">Korekta stanu magazynowego</div>
@@ -317,12 +347,19 @@ export default function Partie() {
           <div><label>Data zdarzenia</label><input type="date" value={corrForm.event_date} onChange={e => cf('event_date',e.target.value)} /></div>
           {batchCorrections.length > 0 && (
             <div style={{ marginTop:12 }}>
-              <div style={{ fontSize:12, fontWeight:500, marginBottom:6 }}>Historia korekt</div>
+              <div style={{ fontSize:12, fontWeight:500, marginBottom:6 }}>Historia korekt tej partii</div>
               {batchCorrections.map(c => (
-                <div key={c.id} style={{ fontSize:12, color:'#5F5E5A', padding:'4px 0', borderBottom:'0.5px solid #D3D1C7' }}>
-                  <b>{CORR_LABELS[c.correction_type]}</b>: {c.reason} &nbsp;
-                  <span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span>
-                  &nbsp;<span className="muted">{c.event_date}</span>
+                <div key={c.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:12, color:'#5F5E5A', padding:'5px 0', borderBottom:'0.5px solid #D3D1C7' }}>
+                  <span><b>{CORR_LABELS[c.correction_type]}</b>: {c.reason} &nbsp;
+                    <span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span>
+                    &nbsp;<span className="muted">{c.event_date}</span>
+                  </span>
+                  {isAdmin && (
+                    <div className="flex" style={{ gap:4, marginLeft:8 }}>
+                      <button className="btn btn-sm" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => { setCorrModal(false); openEditCorr(c) }}>Edytuj</button>
+                      <button className="btn btn-sm btn-danger" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => deleteCorr(c.id)}>Usuń</button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -330,6 +367,35 @@ export default function Partie() {
           <div className="modal-footer">
             <button className="btn" onClick={() => setCorrModal(false)}>Anuluj</button>
             <button className="btn btn-danger" onClick={saveCorrection} disabled={saving}>{saving?'Zapisywanie...':'Zapisz korektę'}</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal edycja korekty */}
+      <div className={`modal-overlay ${editCorrModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditCorrModal(false)}>
+        <div className="modal" style={{ maxWidth:460 }}>
+          <div className="modal-title">Edycja korekty</div>
+          <div className="warn-box" style={{ marginBottom:10 }}>Edycja korekt dostępna tylko dla Admina. Zmiana wartości korekty wpływa na stan magazynowy.</div>
+          {error && <div className="err-box">{error}</div>}
+          <div style={{ marginBottom:10 }}><label>Typ korekty</label>
+            <select value={editCorrForm.correction_type||''} onChange={e => ecf('correction_type',e.target.value)}>
+              {Object.entries(CORR_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <div className="fr">
+            <div><label>Korekta ilości (kg)</label>
+              <input type="number" step="0.001" value={editCorrForm.delta_kg||''} onChange={e => ecf('delta_kg',e.target.value)} placeholder="np. -50 lub +20" />
+            </div>
+            <div><label>Data zdarzenia</label>
+              <input type="date" value={editCorrForm.event_date||''} onChange={e => ecf('event_date',e.target.value)} />
+            </div>
+          </div>
+          <div><label>Przyczyna (wymagane)</label>
+            <input value={editCorrForm.reason||''} onChange={e => ecf('reason',e.target.value)} />
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setEditCorrModal(false)}>Anuluj</button>
+            <button className="btn btn-primary" onClick={saveEditCorr} disabled={saving}>{saving?'Zapisywanie...':'Zapisz zmiany'}</button>
           </div>
         </div>
       </div>
