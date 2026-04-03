@@ -24,6 +24,13 @@ export default function Produkcja() {
   const [editError, setEditError] = useState('')
   const [recalcId, setRecalcId] = useState(null)
   const [recalcMsg, setRecalcMsg] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [editItemsModal, setEditItemsModal] = useState(false)
+  const [editItemsBatch, setEditItemsBatch] = useState(null)
+  const [editItemsList, setEditItemsList] = useState([])
+  const [allIngBatches, setAllIngBatches] = useState([])
+  const [allIngredients, setAllIngredients] = useState([])
+  const [savingItems, setSavingItems] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -199,14 +206,87 @@ export default function Produkcja() {
     }
   }
 
+  async function deleteBatch(batch) {
+    await supabase.from('production_batch_items').delete().eq('production_batch_id', batch.id)
+    await supabase.from('production_batches').delete().eq('id', batch.id)
+    setDeleteConfirm(null)
+    if (detail?.id === batch.id) { setDetail(null); setDetailItems([]) }
+    load()
+  }
+
+  async function openEditItems(batch) {
+    setEditItemsBatch(batch)
+    // Load current items
+    const { data: items } = await supabase
+      .from('production_batch_items')
+      .select('*, ingredient_batches(delivery_lot, received_date, quantity_kg), ingredients(code, name)')
+      .eq('production_batch_id', batch.id)
+      .order('fifo_order')
+    // Load all available ingredient batches for dropdowns
+    const { data: ingBatches } = await supabase
+      .from('v_stock')
+      .select('*')
+      .eq('status', 'dopuszczona')
+      .order('ingredient_id, received_date')
+    const { data: ings } = await supabase
+      .from('ingredients').select('id,code,name').eq('status','aktywny').order('code')
+    setEditItemsList((items||[]).map(it => ({
+      id: it.id,
+      ingredient_id: it.ingredient_id,
+      ingredient_batch_id: it.ingredient_batch_id,
+      quantity_used_kg: it.quantity_used_kg,
+      fifo_order: it.fifo_order
+    })))
+    setAllIngBatches(ingBatches||[])
+    setAllIngredients(ings||[])
+    setEditItemsModal(true)
+  }
+
+  async function saveEditItems() {
+    setSavingItems(true)
+    await supabase.from('production_batch_items').delete().eq('production_batch_id', editItemsBatch.id)
+    const toInsert = editItemsList.filter(it => it.ingredient_id && it.ingredient_batch_id && it.quantity_used_kg).map((it, idx) => ({
+      production_batch_id: editItemsBatch.id,
+      ingredient_id: it.ingredient_id,
+      ingredient_batch_id: it.ingredient_batch_id,
+      quantity_used_kg: parseFloat(it.quantity_used_kg),
+      fifo_order: idx + 1
+    }))
+    if (toInsert.length > 0) await supabase.from('production_batch_items').insert(toInsert)
+    setSavingItems(false)
+    setEditItemsModal(false)
+    if (detail?.id === editItemsBatch.id) {
+      const { data } = await supabase
+        .from('production_batch_items')
+        .select('*, ingredient_batches(delivery_lot, received_date), ingredients(code, name, has_allergen, allergen_type)')
+        .eq('production_batch_id', editItemsBatch.id)
+        .order('fifo_order')
+      setDetailItems(data||[])
+      setDetail(prev => ({...prev}))
+    }
+  }
+
+  function updateEditItem(idx, key, val) {
+    setEditItemsList(p => p.map((it, i) => i === idx ? {...it, [key]: val} : it))
+  }
+
+  function addEditItem() {
+    setEditItemsList(p => [...p, { ingredient_id:'', ingredient_batch_id:'', quantity_used_kg:'', fifo_order: p.length+1 }])
+  }
+
+  function removeEditItem(idx) {
+    setEditItemsList(p => p.filter((_, i) => i !== idx))
+  }
+
   async function exportPDF() {
     const doc = new jsPDF('l', 'mm', 'a4')
-    doc.setFontSize(14); doc.text(`InstantMix Pro — Raport produkcji`, 14, 14)
+    const plg = s => (s||'').replace(/ą/g,'a').replace(/ć/g,'c').replace(/ę/g,'e').replace(/ł/g,'l').replace(/ń/g,'n').replace(/ó/g,'o').replace(/ś/g,'s').replace(/ź/g,'z').replace(/ż/g,'z').replace(/Ą/g,'A').replace(/Ć/g,'C').replace(/Ę/g,'E').replace(/Ł/g,'L').replace(/Ń/g,'N').replace(/Ó/g,'O').replace(/Ś/g,'S').replace(/Ź/g,'Z').replace(/Ż/g,'Z')
+    doc.setFontSize(14); doc.text(`InstantMix Pro - Raport produkcji`, 14, 14)
     doc.setFontSize(10); doc.text(`Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} | Partii: ${stats.count} | Lacznie: ${stats.kg} kg`, 14, 22)
     autoTable(doc, {
       startY: 28,
       head: [['Nr partii prod.', 'Kod', 'Nazwa mieszanki', 'Klient', 'Data prod.', 'Linia', 'Ilosc (kg)', 'Wersja', 'Status']],
-      body: filtered.map(b => [b.lot_number, b.recipe_code, b.recipe_name, b.client||'—', b.production_date, b.production_line, b.quantity_kg, b.recipe_version, b.status]),
+      body: filtered.map(b => [plg(b.lot_number), plg(b.recipe_code), plg(b.recipe_name), plg(b.client)||'-', b.production_date, plg(b.production_line), b.quantity_kg, plg(b.recipe_version), plg(b.status)]),
       styles: { fontSize: 8 }, headStyles: { fillColor: [15, 110, 86] }
     })
     doc.save(`raport_produkcji_${new Date().toISOString().slice(0,10)}.pdf`)
@@ -219,20 +299,21 @@ export default function Produkcja() {
       .eq('production_batch_id', batch.id)
       .order('fifo_order')
     const doc = new jsPDF()
-    doc.setFontSize(14); doc.text(`Raport partii: ${batch.lot_number}`, 14, 16)
+    const pl = s => (s||'').replace(/ą/g,'a').replace(/ć/g,'c').replace(/ę/g,'e').replace(/ł/g,'l').replace(/ń/g,'n').replace(/ó/g,'o').replace(/ś/g,'s').replace(/ź/g,'z').replace(/ż/g,'z').replace(/Ą/g,'A').replace(/Ć/g,'C').replace(/Ę/g,'E').replace(/Ł/g,'L').replace(/Ń/g,'N').replace(/Ó/g,'O').replace(/Ś/g,'S').replace(/Ź/g,'Z').replace(/Ż/g,'Z')
+    doc.setFontSize(14); doc.text(`Raport partii: ${pl(batch.lot_number)}`, 14, 16)
     doc.setFontSize(10)
-    doc.text(`${batch.recipe_code} — ${batch.recipe_name} (${batch.recipe_version})`, 14, 24)
-    doc.text(`Klient: ${batch.client||'—'}`, 14, 31)
-    doc.text(`Data: ${batch.production_date} | Masa: ${batch.quantity_kg} kg | Linia: ${batch.production_line}`, 14, 38)
-    doc.text(`Operator: ${batch.operator||'—'} | Brygadzista: ${batch.foreman||'—'} | Technolog: ${batch.technologist||'—'}`, 14, 45)
+    doc.text(`${pl(batch.recipe_code)} - ${pl(batch.recipe_name)} (${pl(batch.recipe_version)})`, 14, 24)
+    doc.text(`Klient: ${pl(batch.client)||'-'}`, 14, 31)
+    doc.text(`Data: ${batch.production_date} | Masa: ${batch.quantity_kg} kg | Linia: ${pl(batch.production_line)}`, 14, 38)
+    doc.text(`Operator: ${pl(batch.operator)||'-'} | Brygadzista: ${pl(batch.foreman)||'-'} | Technolog: ${pl(batch.technologist)||'-'}`, 14, 45)
     autoTable(doc, {
       startY: 52,
-      head: [['Kod skl.', 'Nazwa', 'Partia dostawy', 'Uzyto (kg)', 'FIFO', 'Alergen']],
-      body: (items||[]).map(it => [it.ingredients?.code, it.ingredients?.name, it.ingredient_batches?.delivery_lot, it.quantity_used_kg, it.fifo_order, it.ingredients?.has_allergen ? it.ingredients.allergen_type : '—']),
+      head: [['Kod skl.', 'Nazwa skladnika', 'Partia dostawy', 'Uzyto (kg)', 'FIFO', 'Alergen']],
+      body: (items||[]).map(it => [pl(it.ingredients?.code), pl(it.ingredients?.name), pl(it.ingredient_batches?.delivery_lot), it.quantity_used_kg, it.fifo_order, it.ingredients?.has_allergen ? pl(it.ingredients.allergen_type) : '-']),
       styles: { fontSize: 9 }, headStyles: { fillColor: [15, 110, 86] }
     })
     const allergens = [...new Set((items||[]).filter(it => it.ingredients?.has_allergen).map(it => it.ingredients.allergen_type))]
-    if (allergens.length) { doc.setFontSize(10); doc.setTextColor(150,0,0); doc.text('ALERGENY: ' + allergens.join(', '), 14, doc.lastAutoTable.finalY + 10) }
+    if (allergens.length) { doc.setFontSize(10); doc.setTextColor(150,0,0); doc.text('ALERGENY: ' + allergens.map(pl).join(', '), 14, doc.lastAutoTable.finalY + 10) }
     doc.save(`partia_${batch.lot_number}.pdf`)
   }
 
@@ -316,6 +397,7 @@ export default function Produkcja() {
                     <div className="flex" style={{ gap:4 }}>
                       <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
                       {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
+                      {isAdmin && <button className="btn btn-sm" style={{ background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80' }} onClick={() => openEditItems(b)} title="Edytuj partie składników">Skł.</button>}
                       {isAdmin && (
                         <button
                           className="btn btn-sm"
@@ -327,6 +409,7 @@ export default function Produkcja() {
                           {recalcId === b.id ? '...' : '↻ FIFO'}
                         </button>
                       )}
+                      {isAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)} title="Usuń partię">Usuń</button>}
                     </div>
                   </td>
                 </tr>
@@ -367,6 +450,65 @@ export default function Produkcja() {
             {!loading && filtered.length===0 && <tr><td colSpan={11} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
           </tbody>
         </table>
+      </div>
+
+      {/* Modal potwierdzenie usunięcia */}
+      <div className={`modal-overlay ${deleteConfirm?'open':''}`} onClick={e => e.target===e.currentTarget && setDeleteConfirm(null)}>
+        <div className="modal" style={{ maxWidth:440 }}>
+          <div className="modal-title">Usuń partię produkcyjną</div>
+          <div className="warn-box">Czy na pewno chcesz usunąć partię <b>{deleteConfirm?.lot_number}</b>?<br/>Zostaną usunięte wszystkie powiązania z partiami składników. Operacja jest nieodwracalna.</div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setDeleteConfirm(null)}>Anuluj</button>
+            <button className="btn btn-danger" onClick={() => deleteBatch(deleteConfirm)}>Tak, usuń</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal edycja partii składników */}
+      <div className={`modal-overlay ${editItemsModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditItemsModal(false)}>
+        <div className="modal" style={{ maxWidth:700 }}>
+          <div className="modal-title">Edycja składników partii — {editItemsBatch?.lot_number}</div>
+          <div className="warn-box" style={{ marginBottom:10 }}>
+            Ręczna edycja składników — uwaga: zmiana może być niezgodna z zasadami FIFO. Użyj tylko w wyjątkowych przypadkach.
+          </div>
+          <div style={{ overflowX:'auto', marginBottom:10 }}>
+            <table style={{ minWidth:580 }}>
+              <thead><tr>
+                <th>Składnik</th><th>Partia dostawy</th><th>Użyto (kg)</th><th style={{width:32}}></th>
+              </tr></thead>
+              <tbody>
+                {editItemsList.map((it, idx) => (
+                  <tr key={idx}>
+                    <td>
+                      <select value={it.ingredient_id} onChange={e => {
+                        updateEditItem(idx, 'ingredient_id', e.target.value)
+                        updateEditItem(idx, 'ingredient_batch_id', '')
+                      }} style={{ fontSize:12, width:'100%' }}>
+                        <option value="">— wybierz składnik —</option>
+                        {allIngredients.map(i => <option key={i.id} value={i.id}>{i.code} — {i.name}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select value={it.ingredient_batch_id} onChange={e => updateEditItem(idx, 'ingredient_batch_id', e.target.value)} style={{ fontSize:12, width:'100%' }} disabled={!it.ingredient_id}>
+                        <option value="">— wybierz partię —</option>
+                        {allIngBatches.filter(b => b.ingredient_id === it.ingredient_id).map(b => (
+                          <option key={b.id} value={b.id}>{b.delivery_lot} ({parseFloat(b.current_kg).toFixed(3)} kg dost. {b.received_date})</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td><input type="number" step="0.001" value={it.quantity_used_kg} onChange={e => updateEditItem(idx, 'quantity_used_kg', e.target.value)} style={{ width:90, fontSize:12 }} /></td>
+                    <td><button className="btn btn-sm btn-danger" style={{ padding:'2px 6px' }} onClick={() => removeEditItem(idx)}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn btn-sm" onClick={addEditItem}>+ Dodaj wiersz</button>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setEditItemsModal(false)}>Anuluj</button>
+            <button className="btn btn-primary" onClick={saveEditItems} disabled={savingItems}>{savingItems?'Zapisywanie...':'Zapisz zmiany'}</button>
+          </div>
+        </div>
       </div>
 
       <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
