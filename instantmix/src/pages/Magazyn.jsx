@@ -38,7 +38,10 @@ export default function Magazyn() {
 
     const stockMap = {}
     for (const s of (stock||[])) {
-      if (!stockMap[s.ingredient_id]) stockMap[s.ingredient_id] = { total:0, batches:[] }
+      if (!stockMap[s.ingredient_id]) stockMap[s.ingredient_id] = { total:0, original:0, corrections:0, batches:[] }
+      // include all statuses for original/corrections tracking, but only dopuszczona for available stock
+      stockMap[s.ingredient_id].original += parseFloat(s.original_kg||0)
+      stockMap[s.ingredient_id].corrections += parseFloat(s.corrections_kg||0)
       if (s.status==='dopuszczona') {
         stockMap[s.ingredient_id].total += parseFloat(s.current_kg||0)
         stockMap[s.ingredient_id].batches.push(s)
@@ -49,9 +52,11 @@ export default function Magazyn() {
       usedMap[u.ingredient_id] = (usedMap[u.ingredient_id]||0) + parseFloat(u.quantity_used_kg||0)
     }
     const result = (ingredients||[]).map(ing => {
-      const inStock = stockMap[ing.id]?.total||0
+      const availableStock = stockMap[ing.id]?.total||0   // current_kg (after corrections) of dopuszczona batches
+      const originalStock = stockMap[ing.id]?.original||0  // original_kg before corrections
+      const correctionsTotal = stockMap[ing.id]?.corrections||0  // sum of all corrections
       const usedTotal = usedMap[ing.id]||0
-      const current = Math.max(0, inStock-usedTotal)
+      const current = Math.max(0, availableStock - usedTotal)
       const minimum = parseFloat(ing.minimum_stock_kg||0)
       const batchCount = stockMap[ing.id]?.batches?.length||0
       let alert = 'ok'
@@ -62,8 +67,11 @@ export default function Magazyn() {
       }
       if (current===0&&minimum===0) alert='empty'
       return { id:ing.id, code:ing.code, name:ing.name, has_allergen:ing.has_allergen,
-        allergen_type:ing.allergen_type, in_stock:parseFloat(inStock.toFixed(3)),
-        used_total:parseFloat(usedTotal.toFixed(3)), current:parseFloat(current.toFixed(3)),
+        allergen_type:ing.allergen_type,
+        in_stock:parseFloat(originalStock.toFixed(3)),
+        corrections_total:parseFloat(correctionsTotal.toFixed(3)),
+        used_total:parseFloat(usedTotal.toFixed(3)),
+        current:parseFloat(current.toFixed(3)),
         minimum, batch_count:batchCount, alert }
     })
     setRows(result)
@@ -321,6 +329,7 @@ export default function Magazyn() {
       <tr>
         <td>${i+1}</td><td style="font-family:monospace">${r.code}</td><td>${r.name}</td>
         <td style="text-align:right">${r.in_stock.toFixed(3)}</td>
+        <td style="text-align:right">${r.corrections_total !== 0 ? (r.corrections_total > 0 ? '+' : '') + r.corrections_total.toFixed(3) : '—'}</td>
         <td style="text-align:right">${r.used_total.toFixed(3)}</td>
         <td style="text-align:right"><strong>${r.current.toFixed(3)}</strong></td>
         <td style="text-align:right">${r.minimum>0?r.minimum.toFixed(3):'—'}</td>
@@ -348,13 +357,14 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
 </div>
 <table><thead><tr>
   <th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th>
-  <th style="width:70px;text-align:right">Przyjęto (kg)</th><th style="width:70px;text-align:right">Zużyto (kg)</th>
+  <th style="width:70px;text-align:right">Przyjęto (kg)</th><th style="width:60px;text-align:right">Korekty (kg)</th><th style="width:70px;text-align:right">Zużyto (kg)</th>
   <th style="width:70px;text-align:right">Stan (kg)</th><th style="width:70px;text-align:right">Minimum (kg)</th>
   <th style="width:60px">Status</th><th style="width:100px">Uwagi / korekta</th>
 </tr></thead><tbody>
   ${tableRows}
   <tr class="total"><td colspan="3" style="text-align:right">SUMA:</td>
   <td style="text-align:right">${filtered.reduce((s,r)=>s+r.in_stock,0).toFixed(3)}</td>
+  <td style="text-align:right">${filtered.reduce((s,r)=>s+r.corrections_total,0).toFixed(3)}</td>
   <td style="text-align:right">${filtered.reduce((s,r)=>s+r.used_total,0).toFixed(3)}</td>
   <td style="text-align:right">${filtered.reduce((s,r)=>s+r.current,0).toFixed(3)}</td>
   <td colspan="3"></td></tr>
@@ -487,6 +497,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
             <th style={{ width:32 }}></th>
             <th>Kod</th><th>Nazwa składnika</th>
             <th style={{ textAlign:'right' }}>Przyjęto (kg)</th>
+            <th style={{ textAlign:'right' }}>Korekty (kg)</th>
             <th style={{ textAlign:'right' }}>Zużyto (kg)</th>
             <th style={{ textAlign:'right' }}>Stan aktualny (kg)</th>
             <th style={{ textAlign:'right' }}>Minimum (kg)</th>
@@ -495,8 +506,8 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
             <th>Alergen</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:32, color:'#888' }}><span className="spinner" /> Obliczam stany...</td></tr>}
-            {!loading && filtered.length===0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
+            {loading && <tr><td colSpan={11} style={{ textAlign:'center', padding:32, color:'#888' }}><span className="spinner" /> Obliczam stany...</td></tr>}
+            {!loading && filtered.length===0 && <tr><td colSpan={11} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
             {!loading && filtered.map(r => (
               <React.Fragment key={r.id}>
                 <tr key={r.id} style={alertRowStyle(r)}>
@@ -509,6 +520,9 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                   <td><span className="lot">{r.code}</span></td>
                   <td style={{ fontWeight:500 }}>{r.name}</td>
                   <td style={{ textAlign:'right', color:'#085041' }}>{r.in_stock.toFixed(3)}</td>
+                  <td style={{ textAlign:'right', color: r.corrections_total < 0 ? '#A32D2D' : r.corrections_total > 0 ? '#085041' : '#888' }}>
+                    {r.corrections_total !== 0 ? (r.corrections_total > 0 ? '+' : '') + r.corrections_total.toFixed(3) : '—'}
+                  </td>
                   <td style={{ textAlign:'right', color:'#633806' }}>{r.used_total.toFixed(3)}</td>
                   <td style={{ textAlign:'right' }}>
                     <div style={{ fontWeight:700, fontSize:14 }}>{r.current.toFixed(3)}</div>
@@ -541,7 +555,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                 </tr>
                 {expandedId===r.id && (
                   <tr key={`${r.id}-detail`}>
-                    <td colSpan={10} style={{ padding:0, background:'#F9F8F5' }}>
+                    <td colSpan={11} style={{ padding:0, background:'#F9F8F5' }}>
                       <div style={{ padding:'8px 16px 10px 40px' }}>
                         <div style={{ fontSize:12, fontWeight:500, marginBottom:6, color:'#0F6E56' }}>
                           Partie na stanie — {r.name}
