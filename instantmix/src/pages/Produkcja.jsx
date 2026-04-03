@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 import jsPDF from 'jspdf'
@@ -105,16 +105,32 @@ export default function Produkcja() {
 
       setRecalcMsg('Pobieram stan magazynu...')
 
-      // 2. Pobierz aktualne zużycie przez INNE partie (nie tę którą przeliczamy)
-      const { data: otherUsed } = await supabase
-        .from('production_batch_items')
-        .select('ingredient_batch_id, quantity_used_kg')
-        .neq('production_batch_id', batch.id)
+      // 2. Pobierz partie produkcyjne z tym samym dniem lub wcześniejsze - wg LOT
+      // Pierwszeństwo mają partie z niższym numerem LOT (PROD-2025-0001 przed PROD-2025-0002)
+      const { data: allBatches } = await supabase
+        .from('production_batches')
+        .select('id, lot_number, production_date')
+        .order('lot_number', { ascending: true })
 
-      // Sumuj zużycie per partia składnika
+      // Znajdź LOT bieżącej partii
+      const thisBatch = allBatches?.find(b => b.id === batch.id)
+      const thisLot = thisBatch?.lot_number || ''
+
+      // Partie które mają pierwszeństwo = niższy numer LOT (czyli wcześniejsze)
+      const priorityIds = (allBatches||[])
+        .filter(b => b.id !== batch.id && b.lot_number < thisLot)
+        .map(b => b.id)
+
+      // Pobierz zużycie tylko przez partie z wyższym priorytetem
       const usedMap = {}
-      for (const u of (otherUsed||[])) {
-        usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
+      if (priorityIds.length > 0) {
+        const { data: otherUsed } = await supabase
+          .from('production_batch_items')
+          .select('ingredient_batch_id, quantity_used_kg')
+          .in('production_batch_id', priorityIds)
+        for (const u of (otherUsed||[])) {
+          usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
+        }
       }
 
       // 3. Pobierz stan z v_stock (current_kg uwzględnia korekty)
@@ -271,6 +287,7 @@ export default function Produkcja() {
       <div className="card-0" style={{ overflowX:'auto' }}>
         <table style={{ minWidth:980 }}>
           <thead><tr>
+            <th style={{ width:32 }}></th>
             <th>Nr partii prod.</th><th>Kod</th><th>Nazwa mieszanki</th>
             <th>Klient</th><th>Data prod.</th><th>Linia prod.</th>
             <th>Ilość (kg)</th><th>Wersja</th><th>Status</th><th></th>
@@ -278,75 +295,79 @@ export default function Produkcja() {
           <tbody>
             {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(b => (
-              <tr key={b.id}>
-                <td><span className="lot">{b.lot_number}</span></td>
-                <td><span className="lot">{b.recipe_code}</span></td>
-                <td style={{ fontWeight:500 }}>{b.recipe_name}</td>
-                <td>{b.client ? <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:500 }}>{b.client}</span> : <span className="muted">—</span>}</td>
-                <td className="muted">{b.production_date}</td>
-                <td><span className={`badge ${b.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{b.production_line==='bezglutenowa'?'Bezglutenowa':'Zwykła'}</span></td>
-                <td style={{ fontWeight:500, textAlign:'right' }}>{b.quantity_kg}</td>
-                <td><span className="badge b-info">{b.recipe_version}</span></td>
-                <td><span className={`badge ${b.status==='wyprodukowana'?'b-ok':b.status==='wstrzymana'?'b-err':b.status==='wydana'?'b-info':'b-warn'}`}>{STATUS_LABELS[b.status]}</span></td>
-                <td>
-                  <div className="flex" style={{ gap:4 }}>
-                    <button className="btn btn-sm" onClick={() => showDetail(b)}>Szczegóły</button>
-                    <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
-                    {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
-                    {isAdmin && (
-                      <button
-                        className="btn btn-sm"
-                        style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }}
-                        onClick={() => recalcFIFO(b)}
-                        disabled={recalcId === b.id}
-                        title="Przelicz ponownie FIFO według aktualnego stanu magazynu"
-                      >
-                        {recalcId === b.id ? '...' : '↻ FIFO'}
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
+              <React.Fragment key={b.id}>
+                <tr>
+                  <td style={{ textAlign:'center' }}>
+                    <button onClick={() => showDetail(b)}
+                      style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'#5F5E5A', padding:'2px 4px' }}>
+                      {detail?.id === b.id ? '▲' : '▼'}
+                    </button>
+                  </td>
+                  <td><span className="lot">{b.lot_number}</span></td>
+                  <td><span className="lot">{b.recipe_code}</span></td>
+                  <td style={{ fontWeight:500 }}>{b.recipe_name}</td>
+                  <td>{b.client ? <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:500 }}>{b.client}</span> : <span className="muted">—</span>}</td>
+                  <td className="muted">{b.production_date}</td>
+                  <td><span className={`badge ${b.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{b.production_line==='bezglutenowa'?'Bezglutenowa':'Zwykła'}</span></td>
+                  <td style={{ fontWeight:500, textAlign:'right' }}>{b.quantity_kg}</td>
+                  <td><span className="badge b-info">{b.recipe_version}</span></td>
+                  <td><span className={`badge ${b.status==='wyprodukowana'?'b-ok':b.status==='wstrzymana'?'b-err':b.status==='wydana'?'b-info':'b-warn'}`}>{STATUS_LABELS[b.status]}</span></td>
+                  <td>
+                    <div className="flex" style={{ gap:4 }}>
+                      <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
+                      {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
+                      {isAdmin && (
+                        <button
+                          className="btn btn-sm"
+                          style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }}
+                          onClick={() => recalcFIFO(b)}
+                          disabled={recalcId === b.id}
+                          title="Przelicz ponownie FIFO według aktualnego stanu magazynu"
+                        >
+                          {recalcId === b.id ? '...' : '↻ FIFO'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {detail?.id === b.id && (
+                  <tr>
+                    <td colSpan={11} style={{ padding:0, background:'#F9F8F5' }}>
+                      <div style={{ padding:'10px 16px 12px 40px' }}>
+                        <div className="flex" style={{ marginBottom:8, flexWrap:'wrap', gap:6 }}>
+                          <span style={{ fontWeight:500, color:'#0F6E56', fontSize:12 }}>{b.recipe_name} — {b.lot_number}</span>
+                          {b.client && <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:11 }}>{b.client}</span>}
+                          <span className="muted" style={{ fontSize:12 }}>{b.production_date} | {b.quantity_kg} kg</span>
+                        </div>
+                        <div className="muted" style={{ marginBottom:8, fontSize:12 }}>
+                          Operator: {b.operator||'—'} &nbsp;|&nbsp; Brygadzista: {b.foreman||'—'} &nbsp;|&nbsp; Technolog: {b.technologist||'—'}
+                          {b.notes && <span> &nbsp;|&nbsp; Uwagi: {b.notes}</span>}
+                        </div>
+                        <table style={{ width:'auto', minWidth:600 }}>
+                          <thead><tr><th>Kod skł.</th><th>Nazwa składnika</th><th>Partia dostawy</th><th>Użyto (kg)</th><th>FIFO</th><th>Alergen</th></tr></thead>
+                          <tbody>
+                            {detailItems.map(it => (
+                              <tr key={it.id}>
+                                <td><span className="lot">{it.ingredients?.code}</span></td>
+                                <td>{it.ingredients?.name}</td>
+                                <td><span className="lot">{it.ingredient_batches?.delivery_lot}</span>{it.fifo_order>1 && <span className="fifo-badge">FIFO {it.fifo_order}</span>}</td>
+                                <td style={{ textAlign:'right', fontWeight:500 }}>{it.quantity_used_kg}</td>
+                                <td><span className="badge b-info" style={{ fontSize:10 }}>#{it.fifo_order}</span></td>
+                                <td>{it.ingredients?.has_allergen ? <span className="badge b-err">{it.ingredients.allergen_type}</span> : <span className="muted">—</span>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
-            {!loading && filtered.length===0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
+            {!loading && filtered.length===0 && <tr><td colSpan={11} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
           </tbody>
         </table>
       </div>
-
-      {detail && (
-        <div className="card" style={{ borderLeft:'3px solid #1D9E75', marginTop:8 }}>
-          <div className="flex" style={{ marginBottom:8, flexWrap:'wrap', gap:6 }}>
-            <span className="lot">{detail.lot_number}</span>
-            <span style={{ fontWeight:500 }}>{detail.recipe_name}</span>
-            <span className="badge b-info">{detail.recipe_version}</span>
-            <span className={`badge ${detail.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{detail.production_line}</span>
-            {detail.client && <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:11, fontWeight:500 }}>{detail.client}</span>}
-            <span className="muted" style={{ marginLeft:'auto' }}>{detail.production_date} | {detail.quantity_kg} kg</span>
-            <button className="btn btn-sm" onClick={() => { setDetail(null); setDetailItems([]) }}>Zamknij</button>
-          </div>
-          <div className="muted" style={{ marginBottom:8 }}>
-            Operator: {detail.operator||'—'} &nbsp;|&nbsp; Brygadzista: {detail.foreman||'—'} &nbsp;|&nbsp; Technolog: {detail.technologist||'—'}
-            {detail.notes && <span> &nbsp;|&nbsp; Uwagi: {detail.notes}</span>}
-          </div>
-          <div className="card-0">
-            <table>
-              <thead><tr><th>Kod skł.</th><th>Nazwa składnika</th><th>Partia dostawy</th><th>Użyto (kg)</th><th>FIFO</th><th>Alergen</th></tr></thead>
-              <tbody>
-                {detailItems.map(it => (
-                  <tr key={it.id}>
-                    <td><span className="lot">{it.ingredients?.code}</span></td>
-                    <td>{it.ingredients?.name}</td>
-                    <td><span className="lot">{it.ingredient_batches?.delivery_lot}</span>{it.fifo_order>1 && <span className="fifo-badge">FIFO {it.fifo_order}</span>}</td>
-                    <td style={{ textAlign:'right', fontWeight:500 }}>{it.quantity_used_kg}</td>
-                    <td><span className="badge b-info" style={{ fontSize:10 }}>#{it.fifo_order}</span></td>
-                    <td>{it.ingredients?.has_allergen ? <span className="badge b-err">{it.ingredients.allergen_type}</span> : <span className="muted">—</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
         <div className="modal">
