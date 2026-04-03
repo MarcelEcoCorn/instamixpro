@@ -79,15 +79,12 @@ export default function Magazyn() {
   }
 
   async function loadBatchDetails(ingredientId) {
-    if (batchDetails[ingredientId]) {
-      setExpandedId(expandedId===ingredientId ? null : ingredientId)
-      return
-    }
+    if (expandedId === ingredientId) { setExpandedId(null); return }
+    // Use v_stock to get current_kg (after corrections)
     const { data } = await supabase
-      .from('ingredient_batches')
-      .select('*, ingredients(code,name)')
+      .from('v_stock')
+      .select('*')
       .eq('ingredient_id', ingredientId)
-      .eq('status','dopuszczona')
       .order('received_date', { ascending: true })
     setBatchDetails(p => ({ ...p, [ingredientId]: data||[] }))
     setExpandedId(ingredientId)
@@ -568,13 +565,14 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                               <th>Nr partii dostawy</th>
                               <th>Data przyjęcia</th>
                               <th>Data ważności</th>
-                              <th style={{ textAlign:'right' }}>Ilość (kg)</th>
+                              <th style={{ textAlign:'right' }}>Stan (kg)</th>
                               <th>Status</th>
                             </tr></thead>
                             <tbody>
                               {batchDetails[r.id].map(b => {
                                 const isExpiring = b.expiry_date && (new Date(b.expiry_date)-new Date()) < 30*24*3600*1000 && new Date(b.expiry_date)>new Date()
                                 const isExpired = b.expiry_date && new Date(b.expiry_date) < new Date()
+                                const hasCorr = parseFloat(b.corrections_kg||0) !== 0
                                 return (
                                   <tr key={b.id}>
                                     <td><span className="lot">{b.delivery_lot}</span></td>
@@ -584,7 +582,11 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                                       {isExpiring && <span className="badge b-warn" style={{ marginLeft:6, fontSize:10 }}>Wygasa wkrótce</span>}
                                       {isExpired && <span className="badge b-err" style={{ marginLeft:6, fontSize:10 }}>Przeterminowana</span>}
                                     </td>
-                                    <td style={{ textAlign:'right', fontWeight:500 }}>{parseFloat(b.quantity_kg).toFixed(3)}</td>
+                                    <td style={{ textAlign:'right' }}>
+                                      {hasCorr && <span style={{ textDecoration:'line-through', color:'#888', marginRight:6, fontSize:11 }}>{parseFloat(b.original_kg).toFixed(3)}</span>}
+                                      <span style={{ fontWeight:700, color: hasCorr ? '#A32D2D' : undefined }}>{parseFloat(b.current_kg).toFixed(3)}</span>
+                                      {hasCorr && <span style={{ fontSize:10, color:'#A32D2D', marginLeft:4 }}>({parseFloat(b.corrections_kg)>0?'+':''}{parseFloat(b.corrections_kg).toFixed(3)})</span>}
+                                    </td>
                                     <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':'b-err'}`}>{b.status}</span></td>
                                   </tr>
                                 )
