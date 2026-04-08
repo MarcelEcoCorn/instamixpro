@@ -207,7 +207,21 @@ export default function Produkcja() {
   }
 
   async function deleteBatch(batch) {
+    // Kaskadowe usuwanie — kolejność jest ważna (foreign keys)
+    // 1. Znajdź finished_goods powiązane z tą partią
+    const { data: fg } = await supabase.from('finished_goods').select('id').eq('production_batch_id', batch.id)
+    if (fg && fg.length > 0) {
+      const fgIds = fg.map(f => f.id)
+      // 2. Usuń dokumenty WZ powiązane z tymi towarami
+      await supabase.from('wz_documents').delete().in('finished_good_id', fgIds)
+      // 3. Usuń przyjęcia z magazynu WG
+      await supabase.from('finished_goods').delete().eq('production_batch_id', batch.id)
+    }
+    // 4. Odepnij zlecenie od partii (nie usuwaj zlecenia)
+    await supabase.from('orders').update({ production_batch_id: null, status: 'nowe', updated_at: new Date().toISOString() }).eq('production_batch_id', batch.id)
+    // 5. Usuń pozycje składnikowe
     await supabase.from('production_batch_items').delete().eq('production_batch_id', batch.id)
+    // 6. Usuń partię
     await supabase.from('production_batches').delete().eq('id', batch.id)
     setDeleteConfirm(null)
     if (detail?.id === batch.id) { setDetail(null); setDetailItems([]) }
@@ -456,7 +470,7 @@ export default function Produkcja() {
       <div className={`modal-overlay ${deleteConfirm?'open':''}`} onClick={e => e.target===e.currentTarget && setDeleteConfirm(null)}>
         <div className="modal" style={{ maxWidth:440 }}>
           <div className="modal-title">Usuń partię produkcyjną</div>
-          <div className="warn-box">Czy na pewno chcesz usunąć partię <b>{deleteConfirm?.lot_number}</b>?<br/>Zostaną usunięte wszystkie powiązania z partiami składników. Operacja jest nieodwracalna.</div>
+          <div className="warn-box">Czy na pewno chcesz usunąć partię <b>{deleteConfirm?.lot_number}</b>?<br/><br/>Zostaną automatycznie usunięte:<br/>• Powiązania z partiami składników (FIFO)<br/>• Przyjęcia na Magazyn WG<br/>• Dokumenty WZ wystawione dla tej partii<br/>• Powiązane zlecenie wróci do statusu "Nowe"<br/><br/>Operacja jest nieodwracalna.</div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setDeleteConfirm(null)}>Anuluj</button>
             <button className="btn btn-danger" onClick={() => deleteBatch(deleteConfirm)}>Tak, usuń</button>
