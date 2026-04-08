@@ -12,8 +12,25 @@ export default function Kalkulator() {
   const [fifoResult, setFifoResult] = useState([])
   const [loading, setLoading] = useState(false)
   const [modal, setModal] = useState(false)
-  const [prodForm, setProdForm] = useState({ operator: '', foreman: '', notes: '' })
+  const [prodForm, setProdForm] = useState({ operator: '', foreman: '', notes: '', order_id: '' })
   const [saving, setSaving] = useState(false)
+  const [orders, setOrders] = useState([])
+  const [ordersLoading, setOrdersLoading] = useState(true)
+
+  useEffect(() => {
+    loadOrders()
+  }, [])
+
+  async function loadOrders() {
+    setOrdersLoading(true)
+    const { data } = await supabase
+      .from('orders')
+      .select('*, recipes(code, name, version)')
+      .in('status', ['nowe', 'w_realizacji'])
+      .order('ship_date', { ascending: true })
+    setOrders(data || [])
+    setOrdersLoading(false)
+  }
 
   useEffect(() => {
     supabase.from('recipes')
@@ -310,6 +327,58 @@ ${allergenBlock}
           <button className="btn btn-primary btn-sm" onClick={printChecklist}>
             Drukuj zlecenie produkcji
           </button>
+        )}
+      </div>
+
+      {/* Podgląd zleceń do zrealizowania */}
+      <div className="card" style={{ marginBottom:10 }}>
+        <div style={{ fontWeight:500, fontSize:13, marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span>Zlecenia do zrealizowania</span>
+          <button className="btn btn-sm" onClick={loadOrders}>Odśwież</button>
+        </div>
+        {ordersLoading ? (
+          <div className="muted" style={{ fontSize:12 }}>Ładowanie...</div>
+        ) : orders.length === 0 ? (
+          <div className="muted" style={{ fontSize:12 }}>Brak aktywnych zleceń</div>
+        ) : (
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ minWidth:600 }}>
+              <thead><tr>
+                <th>Nr zlecenia</th><th>Klient</th><th>Receptura</th>
+                <th style={{ textAlign:'right' }}>Ilość (kg)</th><th>Data wysyłki</th><th>Status</th><th></th>
+              </tr></thead>
+              <tbody>
+                {orders.map(o => {
+                  const days = Math.ceil((new Date(o.ship_date) - new Date()) / (1000*60*60*24))
+                  return (
+                    <tr key={o.id} style={{ background: days <= 3 ? '#FCEBEB55' : days <= 7 ? '#FAEEDA33' : undefined }}>
+                      <td><span className="lot">{o.order_number}</span></td>
+                      <td style={{ fontWeight:500 }}>{o.client}</td>
+                      <td style={{ fontSize:12 }}>{o.recipes?.name} <span className="muted">({o.recipes?.version})</span></td>
+                      <td style={{ textAlign:'right', fontWeight:500 }}>{parseFloat(o.quantity_kg).toLocaleString('pl-PL')} kg</td>
+                      <td>
+                        <span className="muted">{o.ship_date}</span>
+                        {days < 0 && <span className="badge b-err" style={{ fontSize:10, marginLeft:4 }}>Po terminie</span>}
+                        {days >= 0 && days <= 3 && <span className="badge b-err" style={{ fontSize:10, marginLeft:4 }}>{days}d</span>}
+                        {days > 3 && days <= 7 && <span className="badge b-warn" style={{ fontSize:10, marginLeft:4 }}>{days}d</span>}
+                      </td>
+                      <td><span className={`badge ${o.status==='nowe'?'b-info':'b-warn'}`}>{o.status==='nowe'?'Nowe':'W realizacji'}</span></td>
+                      <td>
+                        <button className="btn btn-sm btn-primary" style={{ fontSize:11 }} onClick={() => {
+                          const recipe = recipes.find(r => r.id === o.recipe_id)
+                          if (recipe) setSelectedRecipe(recipe)
+                          setMass(parseFloat(o.quantity_kg))
+                          setProdForm(p => ({ ...p, order_id: o.id }))
+                        }}>
+                          Załaduj
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
