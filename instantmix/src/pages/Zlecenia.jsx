@@ -47,7 +47,7 @@ export default function Zlecenia() {
     setLoading(true)
     const [{ data: o }, { data: r }] = await Promise.all([
       supabase.from('orders').select('*, recipes(code, name, version, production_line), production_batches(lot_number)').order('ship_date', { ascending: true }),
-      supabase.from('recipes').select('id,code,name,version').eq('status','dopuszczona').order('code')
+      supabase.from('recipes').select('id,code,name,version,client').eq('status','dopuszczona').order('client,code')
     ])
     setOrders(o || [])
     setRecipes(r || [])
@@ -237,9 +237,9 @@ export default function Zlecenia() {
           </div>
           <div style={{ marginBottom:10 }}>
             <label>Receptura *</label>
-            <select value={form.recipe_id} onChange={e => f('recipe_id',e.target.value)}>
+            <select value={form.recipe_id} onChange={e => { f('recipe_id',e.target.value); const r = recipes.find(x=>x.id===e.target.value); if(r?.client) f('client', r.client) }}>
               <option value="">— wybierz recepturę —</option>
-              {recipes.map(r => <option key={r.id} value={r.id}>{r.code} — {r.name} ({r.version})</option>)}
+              {recipes.map(r => <option key={r.id} value={r.id}>{r.client ? r.client + ' › ' : ''}{r.code} › {r.name} ({r.version})</option>)}
             </select>
           </div>
           <div className="fr">
