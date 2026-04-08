@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard'
 import Eksport from './pages/Eksport'
 import Magazyn from './pages/Magazyn'
 import Zlecenia from './pages/Zlecenia'
+import MagazynWG from './pages/MagazynWG'
 import './index.css'
 
 export const AuthContext = createContext(null)
@@ -52,7 +53,7 @@ export default function App() {
 
   const pages = {
     receptury: Receptury, skladniki: Skladniki, partie: Partie,
-    zlecenia: Zlecenia, kalkulator: Kalkulator, produkcja: Produkcja, dashboard: Dashboard,
+    zlecenia: Zlecenia, kalkulator: Kalkulator, magazynwg: MagazynWG, produkcja: Produkcja, dashboard: Dashboard,
     eksport: Eksport, magazyn: Magazyn
   }
   const PageComponent = pages[page] || Produkcja
