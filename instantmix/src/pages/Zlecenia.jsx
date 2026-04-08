@@ -35,8 +35,13 @@ export default function Zlecenia() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [lastUpdated, setLastUpdated] = useState(new Date())
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -47,6 +52,7 @@ export default function Zlecenia() {
     setOrders(o || [])
     setRecipes(r || [])
     setLoading(false)
+    setLastUpdated(new Date())
   }
 
   const filtered = orders.filter(o => {
@@ -138,8 +144,13 @@ export default function Zlecenia() {
     <div>
       <div className="page-header">
         <div><div className="page-title">Zlecenia produkcyjne</div><div className="page-sub">Dostęp: Admin, Technolog</div></div>
-        <div className="flex" style={{ gap:8 }}>
+        <div className="flex" style={{ gap:8, alignItems:'center' }}>
+          <span style={{ fontSize:11, color:'#085041', background:'#E1F5EE', padding:'2px 8px', borderRadius:999, display:'flex', alignItems:'center', gap:4 }}>
+            <span style={{ width:6, height:6, borderRadius:'50%', background:'#1D9E75', display:'inline-block', animation:'pulse 2s infinite' }} />
+            LIVE · {lastUpdated.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+          </span>
           <input className="search" placeholder="Szukaj zlecenia, klienta..." value={search} onChange={e => setSearch(e.target.value)} style={{ width:220 }} />
+          <button className="btn btn-sm" onClick={load}>↻</button>
           {canEdit && <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nowe zlecenie</button>}
         </div>
       </div>
