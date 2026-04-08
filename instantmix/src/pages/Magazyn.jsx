@@ -34,7 +34,7 @@ export default function Magazyn() {
       .from('ingredients').select('id,code,name,has_allergen,allergen_type,minimum_stock_kg')
       .eq('status','aktywny').order('code')
     const { data: stock } = await supabase.from('v_stock').select('*')
-    const { data: used } = await supabase.from('production_batch_items').select('ingredient_id,quantity_used_kg')
+    const { data: used } = await supabase.from('production_batch_items').select('ingredient_id,quantity_used_kg, production_batches!inner(id)')
 
     const stockMap = {}
     for (const s of (stock||[])) {
