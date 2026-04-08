@@ -99,9 +99,20 @@ export default function Kalkulator() {
         }))
       )
       await supabase.from('production_batch_items').insert(items)
+      // Zmień status zlecenia na "w_realizacji" i powiąż z partią
+      if (prodForm.order_id) {
+        await supabase.from('orders').update({
+          status: 'w_realizacji',
+          production_batch_id: pb.id,
+          updated_at: new Date().toISOString()
+        }).eq('id', prodForm.order_id)
+      }
     }
     setSaving(false)
     setModal(false)
+    // Reset order_id after use
+    setProdForm(p => ({ ...p, order_id: '' }))
+    loadOrders()
     alert(error ? 'Błąd: ' + error.message : `Partia ${pb.lot_number} utworzona!`)
   }
 
