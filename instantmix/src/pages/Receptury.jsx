@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', notes:'', clients:'' }
+const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', notes:'', client:'' }
 
 export default function Receptury() {
   const { profile } = useAuth()
@@ -17,7 +17,7 @@ export default function Receptury() {
   const [editMode, setEditMode] = useState(false)
   const [dupModal, setDupModal] = useState(false)
   const [dupSource, setDupSource] = useState(null)
-  const [dupForm, setDupForm] = useState({ code:'', clients:'' })
+  const [dupForm, setDupForm] = useState({ code:'', client:'' })
   const [form, setForm] = useState(EMPTY_FORM)
   const [items, setItems] = useState([{ ingredient_id:'', percentage:'' }])
   const [saving, setSaving] = useState(false)
@@ -40,7 +40,7 @@ export default function Receptury() {
   const filtered = recipes.filter(r =>
     r.name.toLowerCase().includes(search.toLowerCase()) ||
     r.code.toLowerCase().includes(search.toLowerCase()) ||
-    (r.clients||'').toLowerCase().includes(search.toLowerCase())
+    (r.client||'').toLowerCase().includes(search.toLowerCase())
   )
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -49,7 +49,7 @@ export default function Receptury() {
 
   function openEdit(recipe) {
     setEditMode(true)
-    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', notes:recipe.notes||'', clients:recipe.clients||'' })
+    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', notes:recipe.notes||'', client:recipe.client||'' })
     const sorted = (recipe.recipe_items||[]).sort((a,b) => a.sort_order-b.sort_order)
     setItems(sorted.length > 0 ? sorted.map(it => ({ id:it.id, ingredient_id:it.ingredient_id, percentage:it.percentage })) : [{ ingredient_id:'', percentage:'' }])
     setError(''); setModal(true)
@@ -57,7 +57,7 @@ export default function Receptury() {
 
   function openDuplicate(recipe) {
     setDupSource(recipe)
-    setDupForm({ code:'', clients: recipe.clients||'' })
+    setDupForm({ code:'', client: recipe.client||'' })
     setError(''); setDupModal(true)
   }
 
@@ -69,7 +69,7 @@ export default function Receptury() {
       code: dupForm.code, name: dupSource.name, version: dupSource.version,
       status: 'w_przegladzie', production_line: dupSource.production_line,
       approved_at: null, notes: dupSource.notes,
-      clients: dupForm.clients || null, approved_by: profile?.id
+      client: dupForm.client || null, approved_by: profile?.id
     }).select().single()
     if (err) { setError(err.message); setSaving(false); return }
     const srcItems = (dupSource.recipe_items||[]).filter(it => it.ingredient_id)
@@ -93,7 +93,7 @@ export default function Receptury() {
     const validItems = items.filter(it => it.ingredient_id && it.percentage)
     if (validItems.length === 0) { setError('Dodaj co najmniej jeden składnik'); return }
     setSaving(true); setError('')
-    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, notes:form.notes||null, clients:form.clients||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
+    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, notes:form.notes||null, client:form.client||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
     let recipeId = form.id
     if (editMode) {
       const { error: err } = await supabase.from('recipes').update(payload).eq('id', form.id)
@@ -153,7 +153,7 @@ export default function Receptury() {
                   <td><span className="badge b-info">{r.version}</span></td>
                   <td><span className={`badge ${r.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{r.production_line}</span></td>
                   <td style={{ fontSize:12, maxWidth:160 }}>
-                    {r.clients ? r.clients.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
+                    {r.client ? r.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
                       <span key={c} style={{ display:'inline-block', background:'#E6F1FB', color:'#0C447C', padding:'1px 6px', borderRadius:999, fontSize:11, marginRight:3, marginBottom:2 }}>{c}</span>
                     )) : <span className="muted">—</span>}
                   </td>
@@ -185,10 +185,10 @@ export default function Receptury() {
                   <tr>
                     <td colSpan={10} style={{ padding:0, background:'#F9F8F5' }}>
                       <div style={{ padding:'10px 16px 12px 40px' }}>
-                        {r.clients && (
+                        {r.client && (
                           <div style={{ marginBottom:8 }}>
                             <span className="muted" style={{ marginRight:6 }}>Klienci:</span>
-                            {r.clients.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
+                            {r.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
                               <span key={c} style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:12, marginRight:4 }}>{c}</span>
                             ))}
                           </div>
@@ -260,10 +260,10 @@ export default function Receptury() {
           </div>
           <div style={{ marginBottom:10 }}>
             <label>Klienci (oddziel przecinkiem)</label>
-            <input value={form.clients} onChange={e => f('clients',e.target.value)} placeholder="np. Firma ABC, Sklep XYZ" />
-            {form.clients && (
+            <input value={form.client} onChange={e => f('client',e.target.value)} placeholder="np. Firma ABC, Sklep XYZ" />
+            {form.client && (
               <div style={{ marginTop:6, display:'flex', flexWrap:'wrap', gap:4 }}>
-                {form.clients.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
+                {form.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
                   <span key={c} style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:12 }}>{c}</span>
                 ))}
               </div>
@@ -315,10 +315,10 @@ export default function Receptury() {
           </div>
           <div>
             <label>Klienci dla duplikatu (oddziel przecinkiem)</label>
-            <input value={dupForm.clients} onChange={e => setDupForm(p=>({...p,clients:e.target.value}))} placeholder="np. Nowy Klient Sp. z o.o." />
-            {dupForm.clients && (
+            <input value={dupForm.client} onChange={e => setDupForm(p=>({...p,client:e.target.value}))} placeholder="np. Nowy Klient Sp. z o.o." />
+            {dupForm.client && (
               <div style={{ marginTop:6, display:'flex', flexWrap:'wrap', gap:4 }}>
-                {dupForm.clients.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
+                {dupForm.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
                   <span key={c} style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:12 }}>{c}</span>
                 ))}
               </div>
