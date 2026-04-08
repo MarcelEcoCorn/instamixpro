@@ -27,6 +27,8 @@ export default function MagazynWG() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [filterView, setFilterView] = useState('aktywne')
+  const [printWzData, setPrintWzData] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -38,16 +40,23 @@ export default function MagazynWG() {
       supabase.from('v_production').select('id, lot_number, recipe_code, recipe_name, quantity_kg, production_date, client').order('production_date', { ascending: false }),
       supabase.from('orders').select('id, order_number, client, quantity_kg, recipe_id, recipes(name,code)').in('status',['w_realizacji','zrealizowane']).order('ship_date')
     ])
+    // Filter out production batches already accepted to warehouse
+    const acceptedBatchIds = new Set((g||[]).map(x => x.production_batch_id))
     setGoods(g || [])
     setWzDocs(wz || [])
-    setProdBatches(pb || [])
+    setProdBatches((pb||[]).filter(p => !acceptedBatchIds.has(p.id)))
     setOrders(o || [])
     setLoading(false)
   }
 
   const filtered = goods.filter(g => {
     const q = search.toLowerCase()
-    return !q || g.lot_number?.toLowerCase().includes(q) || g.recipe_name?.toLowerCase().includes(q) || (g.client||'').toLowerCase().includes(q) || (g.order_number||'').toLowerCase().includes(q)
+    const matchQ = !q || g.lot_number?.toLowerCase().includes(q) || g.recipe_name?.toLowerCase().includes(q) || (g.client||'').toLowerCase().includes(q) || (g.order_number||'').toLowerCase().includes(q)
+    const isFullyIssued = parseFloat(g.available_kg) <= 0
+    const matchView = filterView === 'wszystkie' ? true :
+      filterView === 'aktywne' ? !isFullyIssued :
+      filterView === 'wydane' ? isFullyIssued : true
+    return matchQ && matchView
   })
 
   const stats = {
@@ -126,14 +135,13 @@ export default function MagazynWG() {
     }
 
     setSaving(false); setWzModal(false)
-    // Drukuj WZ
-    printWZ(wzNumber)
+    // Zapisz dane do druku — nie drukuj automatycznie
+    setPrintWzData({ wzNumber, good: wzGood, form: {...wzForm} })
     load()
   }
 
-  function printWZ(wzNumber) {
-    const good = wzGood
-    const qty = parseFloat(wzForm.quantity_kg).toFixed(3)
+  function printWZ(wzNumber, good, form) {
+    const qty = parseFloat(form.quantity_kg).toFixed(3)
     const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8">
 <title>Dokument WZ ${wzNumber}</title>
 <style>
@@ -164,14 +172,14 @@ export default function MagazynWG() {
     <div class="wz-number">${wzNumber}</div>
   </div>
   <div style="text-align:right;font-size:10px;color:#555">
-    Data wydania: <strong>${wzForm.issue_date}</strong><br>
+    Data wydania: <strong>${form.issue_date}</strong><br>
     Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} ${new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}<br>
     Wystawił: <strong>${profile?.full_name||'—'}</strong>
   </div>
 </div>
 <div class="info-grid">
-  <div class="info-box"><div class="info-label">Odbiorca</div><div class="info-value">${wzForm.recipient||'—'}</div></div>
-  <div class="info-box"><div class="info-label">Przewoźnik / transport</div><div class="info-value">${wzForm.carrier||'—'}</div></div>
+  <div class="info-box"><div class="info-label">Odbiorca</div><div class="info-value">${form.recipient||'—'}</div></div>
+  <div class="info-box"><div class="info-label">Przewoźnik / transport</div><div class="info-value">${form.carrier||'—'}</div></div>
   <div class="info-box"><div class="info-label">Nr zlecenia</div><div class="info-value">${good.order_number||'—'}</div></div>
   <div class="info-box"><div class="info-label">Nr partii produkcyjnej</div><div class="info-value">${good.lot_number}</div></div>
   <div class="info-box"><div class="info-label">Receptura</div><div class="info-value">${good.recipe_code} — ${good.recipe_name}</div></div>
@@ -189,7 +197,7 @@ export default function MagazynWG() {
       <td>${good.recipe_name} (${good.recipe_version})</td>
       <td style="text-align:right;font-weight:bold">${qty}</td>
       <td>${good.lot_number}</td>
-      <td>${wzForm.notes||''}</td>
+      <td>${form.notes||''}</td>
     </tr>
     <tr class="total">
       <td colspan="3" style="text-align:right">RAZEM:</td>
@@ -229,6 +237,29 @@ export default function MagazynWG() {
         <div className="stat-card"><div className="stat-label">Dostępnych</div><div className="stat-val" style={{ color:'#085041' }}>{stats.available}</div></div>
         <div className="stat-card"><div className="stat-label">Łącznie przyjęto (kg)</div><div className="stat-val">{parseFloat(stats.totalKg).toLocaleString('pl-PL')}</div></div>
         <div className="stat-card"><div className="stat-label">Dostępne (kg)</div><div className="stat-val" style={{ color:'#085041' }}>{parseFloat(stats.availableKg).toLocaleString('pl-PL')}</div></div>
+      </div>
+
+      {/* Powiadomienie o wystawionym WZ z przyciskiem druku */}
+      {printWzData && (
+        <div className="info-box" style={{ marginBottom:10, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span>✓ Dokument <b>{printWzData.wzNumber}</b> został wystawiony pomyślnie.</span>
+          <div className="flex" style={{ gap:8 }}>
+            <button className="btn btn-sm btn-primary" onClick={() => { printWZ(printWzData.wzNumber, printWzData.good, printWzData.form); }}>
+              Drukuj WZ
+            </button>
+            <button className="btn btn-sm" onClick={() => setPrintWzData(null)}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* Filtry */}
+      <div className="flex" style={{ marginBottom:10, gap:6 }}>
+        {['aktywne','wydane','wszystkie'].map(f => (
+          <button key={f} className="btn btn-sm" onClick={() => setFilterView(f)}
+            style={{ background:filterView===f?'#1D9E75':undefined, color:filterView===f?'#fff':undefined, borderColor:filterView===f?'#1D9E75':undefined }}>
+            {f==='aktywne'?'Aktywne (dostępne)':f==='wydane'?'Wydane':' Wszystkie'}
+          </button>
+        ))}
       </div>
 
       <div className="card-0" style={{ overflowX:'auto' }}>
