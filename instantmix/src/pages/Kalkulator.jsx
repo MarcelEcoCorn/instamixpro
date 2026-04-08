@@ -461,24 +461,42 @@ ${allergenBlock}
                   <th>Partia FIFO</th><th>Kg z partii</th><th>Alergen</th>
                 </tr></thead>
                 <tbody>
-                  {fifoResult.map(r => r.lots.length > 0 ? r.lots.map((l, i) => (
-                    <tr key={`${r.id}-${i}`} style={{ background: r.lots.length > 1 && i === 0 ? '#E6F1FB33' : undefined }}>
-                      <td>{i === 0 && <span className="lot">{r.ingredient?.code}</span>}</td>
-                      <td>{i === 0 && r.ingredient?.name}</td>
-                      <td style={{ fontWeight: i === 0 ? 500 : undefined, textAlign: 'right' }}>{i === 0 ? r.needed.toFixed(3) : ''}</td>
-                      <td><span className="lot">{l.lot}</span>{r.lots.length > 1 && <span className="fifo-badge">FIFO {i + 1}</span>}</td>
-                      <td style={{ textAlign: 'right' }}>{l.kg.toFixed(3)}</td>
-                      <td>{i === 0 && r.ingredient?.has_allergen ? <span className="badge b-err">{r.ingredient.allergen_type}</span> : ''}</td>
-                    </tr>
-                  )) : (
-                    <tr key={r.id}>
-                      <td><span className="lot">{r.ingredient?.code}</span></td>
-                      <td>{r.ingredient?.name}</td>
-                      <td style={{ fontWeight: 500, textAlign: 'right' }}>{r.needed.toFixed(3)}</td>
-                      <td colSpan={2}><span className="badge b-err">BRAK W MAGAZYNIE</span></td>
-                      <td>{r.ingredient?.has_allergen ? <span className="badge b-err">{r.ingredient.allergen_type}</span> : ''}</td>
-                    </tr>
-                  ))}
+                  {fifoResult.map(r => {
+                    const totalAvail = r.lots.reduce((s,l) => s+l.kg, 0)
+                    const hasShortageItem = r.shortage > 0.001
+                    return r.lots.length > 0 ? [
+                      ...r.lots.map((l, i) => (
+                        <tr key={`${r.id}-${i}`} style={{ background: hasShortageItem ? '#FAEEDA33' : r.lots.length > 1 && i === 0 ? '#E6F1FB33' : undefined }}>
+                          <td>{i === 0 && <span className="lot">{r.ingredient?.code}</span>}</td>
+                          <td>{i === 0 && r.ingredient?.name}</td>
+                          <td style={{ fontWeight: i === 0 ? 500 : undefined, textAlign: 'right' }}>{i === 0 ? r.needed.toFixed(3) : ''}</td>
+                          <td><span className="lot">{l.lot}</span>{r.lots.length > 1 && <span className="fifo-badge">FIFO {i + 1}</span>}</td>
+                          <td style={{ textAlign: 'right' }}>{l.kg.toFixed(3)}</td>
+                          <td>{i === 0 && r.ingredient?.has_allergen ? <span className="badge b-err">{r.ingredient.allergen_type}</span> : ''}</td>
+                        </tr>
+                      )),
+                      hasShortageItem ? (
+                        <tr key={`${r.id}-shortage`} style={{ background:'#FCEBEB55' }}>
+                          <td colSpan={2} style={{ paddingLeft:24, color:'#A32D2D', fontSize:11 }}>
+                            ⚠ Niedobór składnika
+                          </td>
+                          <td style={{ textAlign:'right', color:'#A32D2D', fontWeight:500 }}>{r.needed.toFixed(3)}</td>
+                          <td style={{ color:'#A32D2D', fontSize:11 }}>
+                            Dostępne: <b>{totalAvail.toFixed(3)} kg</b> · Brakuje: <b>{r.shortage.toFixed(3)} kg</b>
+                          </td>
+                          <td colSpan={2}><span className="badge b-err">NIEDOBÓR</span></td>
+                        </tr>
+                      ) : null
+                    ] : (
+                      <tr key={r.id} style={{ background:'#FCEBEB55' }}>
+                        <td><span className="lot">{r.ingredient?.code}</span></td>
+                        <td>{r.ingredient?.name}</td>
+                        <td style={{ fontWeight: 500, textAlign: 'right', color:'#A32D2D' }}>{r.needed.toFixed(3)}</td>
+                        <td colSpan={2}><span className="badge b-err">BRAK W MAGAZYNIE</span> <span className="muted" style={{fontSize:11}}>Dostępne: 0 kg · Brakuje: {r.needed.toFixed(3)} kg</span></td>
+                        <td>{r.ingredient?.has_allergen ? <span className="badge b-err">{r.ingredient.allergen_type}</span> : ''}</td>
+                      </tr>
+                    )
+                  })}
                   <tr style={{ background: '#E1F5EE' }}>
                     <td colSpan={2} style={{ fontWeight: 500, textAlign: 'right' }}>SUMA wsadu</td>
                     <td style={{ fontWeight: 500, textAlign: 'right' }}>{fifoResult.reduce((s, r) => s + r.needed, 0).toFixed(3)} kg</td>
