@@ -36,36 +36,68 @@ export default function Kalkulator() {
     supabase.from('recipes')
       .select('*, recipe_items(*, ingredients(*))')
       .eq('status', 'dopuszczona')
-      .order('code')
+      .order('client,code')
       .then(({ data }) => setRecipes(data || []))
   }, [])
 
   async function calculate() {
     if (!selectedRecipe || !mass) return
     setLoading(true)
+
+    // Pobierz aktualne zużycie przez WSZYSTKIE istniejące partie produkcyjne
+    const { data: allUsed } = await supabase
+      .from('production_batch_items')
+      .select('ingredient_batch_id, quantity_used_kg')
+    const usedMap = {}
+    for (const u of (allUsed||[])) {
+      usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
+    }
+
+    // Pobierz stan z v_stock (current_kg uwzględnia korekty)
+    const { data: stockAll } = await supabase
+      .from('v_stock')
+      .select('*')
+      .eq('status', 'dopuszczona')
+      .order('received_date', { ascending: true })
+
+    // Oblicz dostępne = current_kg - już zużyte
+    const availableMap = {}
+    for (const s of (stockAll||[])) {
+      const used = usedMap[s.id]||0
+      const avail = parseFloat(s.current_kg) - used
+      if (avail > 0.001) {
+        if (!availableMap[s.ingredient_id]) availableMap[s.ingredient_id] = []
+        availableMap[s.ingredient_id].push({
+          id: s.id,
+          delivery_lot: s.delivery_lot,
+          current_kg: s.current_kg,
+          available: parseFloat(avail.toFixed(3)),
+          received_date: s.received_date
+        })
+      }
+    }
+
     const result = []
     for (const item of selectedRecipe.recipe_items.sort((a, b) => a.sort_order - b.sort_order)) {
       const needed = parseFloat(((mass * item.percentage) / 100).toFixed(3))
-      const { data: stockRows } = await supabase
-        .from('v_fifo_stock')
-        .select('*')
-        .eq('ingredient_id', item.ingredient_id)
-        .gt('current_kg', 0)
+      const rows = availableMap[item.ingredient_id] || []
       let remaining = needed
       const lots = []
-      for (const row of (stockRows || [])) {
-        if (remaining <= 0) break
-        const take = Math.min(remaining, parseFloat(row.current_kg))
-        lots.push({
-          lot: row.delivery_lot,
-          batch_id: row.id,
-          ingredient_batch_id: row.id,
-          kg: parseFloat(take.toFixed(3)),
-          available: parseFloat(row.current_kg)
-        })
-        remaining = parseFloat((remaining - take).toFixed(3))
+      for (const row of rows) {
+        if (remaining <= 0.001) break
+        const take = Math.min(remaining, row.available)
+        if (take > 0.001) {
+          lots.push({
+            lot: row.delivery_lot,
+            batch_id: row.id,
+            ingredient_batch_id: row.id,
+            kg: parseFloat(take.toFixed(3)),
+            available: row.available
+          })
+          remaining = parseFloat((remaining - take).toFixed(3))
+        }
       }
-      result.push({ ...item, needed, lots, shortage: remaining > 0 ? remaining : 0, ingredient: item.ingredients })
+      result.push({ ...item, needed, lots, shortage: remaining > 0.001 ? remaining : 0, ingredient: item.ingredients })
     }
     setFifoResult(result)
     setLoading(false)
@@ -380,6 +412,7 @@ ${allergenBlock}
                           if (recipe) setSelectedRecipe(recipe)
                           setMass(parseFloat(o.quantity_kg))
                           setProdForm(p => ({ ...p, order_id: o.id }))
+                          window.scrollTo(0, document.body.scrollHeight)
                         }}>
                           Załaduj
                         </button>
@@ -403,7 +436,7 @@ ${allergenBlock}
               disabled={!canEdit}
             >
               <option value="">— wybierz recepturę —</option>
-              {recipes.map(r => <option key={r.id} value={r.id}>{r.code} — {r.name} ({r.version})</option>)}
+              {recipes.map(r => <option key={r.id} value={r.id}>{r.client ? r.client + ' › ' : ''}{r.code} › {r.name} ({r.version})</option>)}
             </select>
           </div>
           <div>
