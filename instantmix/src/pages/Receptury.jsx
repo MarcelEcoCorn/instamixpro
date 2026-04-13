@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', notes:'', client:'' }
+const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', notes:'', client:'', client_id:'' }
 
 export default function Receptury() {
   const { profile } = useAuth()
@@ -10,6 +10,7 @@ export default function Receptury() {
 
   const [recipes, setRecipes] = useState([])
   const [ingredients, setIngredients] = useState([])
+  const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState(null)
@@ -17,7 +18,7 @@ export default function Receptury() {
   const [editMode, setEditMode] = useState(false)
   const [dupModal, setDupModal] = useState(false)
   const [dupSource, setDupSource] = useState(null)
-  const [dupForm, setDupForm] = useState({ code:'', client:'' })
+  const [dupForm, setDupForm] = useState({ code:'', client:'', client_id:'' })
   const [form, setForm] = useState(EMPTY_FORM)
   const [items, setItems] = useState([{ ingredient_id:'', percentage:'' }])
   const [saving, setSaving] = useState(false)
@@ -28,12 +29,14 @@ export default function Receptury() {
 
   async function load() {
     setLoading(true)
-    const [{ data: r }, { data: i }] = await Promise.all([
+    const [{ data: r }, { data: i }, { data: c }] = await Promise.all([
       supabase.from('recipes').select('*, recipe_items(*, ingredients(*))').order('code'),
-      supabase.from('ingredients').select('id,code,name,has_allergen,allergen_type').eq('status','aktywny').order('code')
+      supabase.from('ingredients').select('id,code,name,has_allergen,allergen_type').eq('status','aktywny').order('code'),
+      supabase.from('clients').select('id,number,name').order('number')
     ])
     setRecipes(r || [])
     setIngredients(i || [])
+    setClients(c || [])
     setLoading(false)
   }
 
@@ -49,7 +52,7 @@ export default function Receptury() {
 
   function openEdit(recipe) {
     setEditMode(true)
-    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', notes:recipe.notes||'', client:recipe.client||'' })
+    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', notes:recipe.notes||'', client:recipe.client||'', client_id:recipe.client_id||'' })
     const sorted = (recipe.recipe_items||[]).sort((a,b) => a.sort_order-b.sort_order)
     setItems(sorted.length > 0 ? sorted.map(it => ({ id:it.id, ingredient_id:it.ingredient_id, percentage:it.percentage })) : [{ ingredient_id:'', percentage:'' }])
     setError(''); setModal(true)
@@ -57,7 +60,7 @@ export default function Receptury() {
 
   function openDuplicate(recipe) {
     setDupSource(recipe)
-    setDupForm({ code:'', client: recipe.client||'' })
+    setDupForm({ code:'', client: recipe.client||'', client_id: recipe.client_id||'' })
     setError(''); setDupModal(true)
   }
 
@@ -69,7 +72,8 @@ export default function Receptury() {
       code: dupForm.code, name: dupSource.name, version: dupSource.version,
       status: 'w_przegladzie', production_line: dupSource.production_line,
       approved_at: null, notes: dupSource.notes,
-      client: dupForm.client || null, approved_by: profile?.id
+      client: dupForm.client || null, client_id: dupForm.client_id || null,
+      approved_by: profile?.id
     }).select().single()
     if (err) { setError(err.message); setSaving(false); return }
     const srcItems = (dupSource.recipe_items||[]).filter(it => it.ingredient_id)
@@ -93,7 +97,7 @@ export default function Receptury() {
     const validItems = items.filter(it => it.ingredient_id && it.percentage)
     if (validItems.length === 0) { setError('Dodaj co najmniej jeden składnik'); return }
     setSaving(true); setError('')
-    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, notes:form.notes||null, client:form.client||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
+    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, notes:form.notes||null, client:form.client||null, client_id:form.client_id||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
     let recipeId = form.id
     if (editMode) {
       const { error: err } = await supabase.from('recipes').update(payload).eq('id', form.id)
@@ -135,7 +139,7 @@ export default function Receptury() {
           <thead><tr>
             <th style={{ width:32 }}></th>
             <th>Kod</th><th>Nazwa mieszanki</th><th>Wersja</th><th>Linia</th>
-            <th>Klienci</th><th>Skł.</th><th>Status</th><th>Data zatw.</th><th></th>
+            <th>Klient</th><th>Skł.</th><th>Status</th><th>Data zatw.</th><th></th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
@@ -152,10 +156,10 @@ export default function Receptury() {
                   <td style={{ fontWeight:500 }}>{r.name}</td>
                   <td><span className="badge b-info">{r.version}</span></td>
                   <td><span className={`badge ${r.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{r.production_line}</span></td>
-                  <td style={{ fontSize:12, maxWidth:160 }}>
-                    {r.client ? r.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
-                      <span key={c} style={{ display:'inline-block', background:'#E6F1FB', color:'#0C447C', padding:'1px 6px', borderRadius:999, fontSize:11, marginRight:3, marginBottom:2 }}>{c}</span>
-                    )) : <span className="muted">—</span>}
+                  <td style={{ fontSize:12 }}>
+                    {r.client
+                      ? <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'1px 8px', borderRadius:999, fontSize:11, fontWeight:500 }}>{r.client}</span>
+                      : <span className="muted">—</span>}
                   </td>
                   <td>{r.recipe_items?.length||0}</td>
                   <td>
@@ -174,23 +178,19 @@ export default function Receptury() {
                   <td>
                     <div className="flex" style={{ gap:4 }}>
                       {canEdit && <button className="btn btn-sm" onClick={() => openEdit(r)}>Edytuj</button>}
-                      {canEdit && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }} onClick={() => openDuplicate(r)} title="Duplikuj recepturę">Duplikuj</button>}
+                      {canEdit && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }} onClick={() => openDuplicate(r)}>Duplikuj</button>}
                       {canEdit && <button className="btn btn-sm btn-danger" onClick={() => setConfirmDelete(r)}>Usuń</button>}
                     </div>
                   </td>
                 </tr>
-
-                {/* Szczegóły inline */}
                 {expandedId===r.id && (
                   <tr>
                     <td colSpan={10} style={{ padding:0, background:'#F9F8F5' }}>
                       <div style={{ padding:'10px 16px 12px 40px' }}>
                         {r.client && (
                           <div style={{ marginBottom:8 }}>
-                            <span className="muted" style={{ marginRight:6 }}>Klienci:</span>
-                            {r.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
-                              <span key={c} style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:12, marginRight:4 }}>{c}</span>
-                            ))}
+                            <span className="muted" style={{ marginRight:6 }}>Klient:</span>
+                            <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:12 }}>{r.client}</span>
                           </div>
                         )}
                         {r.notes && <div className="muted" style={{ marginBottom:8, fontSize:12 }}>Uwagi: {r.notes}</div>}
@@ -259,15 +259,15 @@ export default function Receptury() {
             <div><label>Uwagi</label><input value={form.notes} onChange={e => f('notes',e.target.value)} /></div>
           </div>
           <div style={{ marginBottom:10 }}>
-            <label>Klienci (oddziel przecinkiem)</label>
-            <input value={form.client} onChange={e => f('client',e.target.value)} placeholder="np. Firma ABC, Sklep XYZ" />
-            {form.client && (
-              <div style={{ marginTop:6, display:'flex', flexWrap:'wrap', gap:4 }}>
-                {form.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
-                  <span key={c} style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:12 }}>{c}</span>
-                ))}
-              </div>
-            )}
+            <label>Klient</label>
+            <select value={form.client_id||''} onChange={e => {
+              const c = clients.find(x => x.id === e.target.value)
+              f('client_id', e.target.value)
+              f('client', c ? c.name : '')
+            }}>
+              <option value="">— brak / wybierz klienta —</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.number} — {c.name}</option>)}
+            </select>
           </div>
           <div className="divider"/>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
@@ -311,18 +311,17 @@ export default function Receptury() {
           {error && <div className="err-box">{error}</div>}
           <div style={{ marginBottom:10 }}>
             <label>Nowy kod mieszanki * (musi być inny niż oryginał)</label>
-            <input value={dupForm.code} onChange={e => setDupForm(p=>({...p,code:e.target.value}))} placeholder={`np. ${dupSource?.code}-B lub MIX-XXX`} />
+            <input value={dupForm.code} onChange={e => setDupForm(p=>({...p,code:e.target.value}))} placeholder={`np. ${dupSource?.code}-B`} />
           </div>
           <div>
-            <label>Klienci dla duplikatu (oddziel przecinkiem)</label>
-            <input value={dupForm.client} onChange={e => setDupForm(p=>({...p,client:e.target.value}))} placeholder="np. Nowy Klient Sp. z o.o." />
-            {dupForm.client && (
-              <div style={{ marginTop:6, display:'flex', flexWrap:'wrap', gap:4 }}>
-                {dupForm.client.split(',').map(c=>c.trim()).filter(Boolean).map(c => (
-                  <span key={c} style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:12 }}>{c}</span>
-                ))}
-              </div>
-            )}
+            <label>Klient dla duplikatu</label>
+            <select value={dupForm.client_id||''} onChange={e => {
+              const c = clients.find(x => x.id === e.target.value)
+              setDupForm(p => ({...p, client_id: e.target.value, client: c ? c.name : ''}))
+            }}>
+              <option value="">— brak / wybierz klienta —</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.number} — {c.name}</option>)}
+            </select>
           </div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setDupModal(false)}>Anuluj</button>
