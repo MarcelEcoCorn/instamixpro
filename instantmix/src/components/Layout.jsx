@@ -3,16 +3,17 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
 const NAV = [
-  { id: 'receptury',  label: 'Receptury',          roles: ['admin','technolog'] },
-  { id: 'skladniki',  label: 'Składniki',           roles: ['admin'] },
-  { id: 'partie',     label: 'Przyjęcie składników',   roles: ['admin','technolog'] },
-  { id: 'magazyn',    label: 'Magazyn składników',             roles: ['admin','technolog','brygadzista','sprzedaz'] },
-  { id: 'zlecenia',   label: 'Zlecenia',            roles: ['admin','technolog','sprzedaz'] },
-  { id: 'kalkulator', label: 'Kalkulator',          roles: ['admin','technolog','brygadzista'] },
-  { id: 'produkcja',  label: 'Produkcja',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
-  { id: 'dashboard',  label: 'Dashboard',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
-  { id: 'magazynwg',  label: 'Magazyn WG',           roles: ['admin','technolog','sprzedaz'] },
-  { id: 'eksport',    label: 'Eksport / kopia',     roles: ['admin','technolog'] },
+  { id: 'receptury',  label: 'Receptury',              roles: ['admin','technolog'] },
+  { id: 'skladniki',  label: 'Składniki',               roles: ['admin'] },
+  { id: 'partie',     label: 'Przyjęcie składników',    roles: ['admin','technolog'] },
+  { id: 'magazyn',    label: 'Magazyn składników',      roles: ['admin','technolog','brygadzista','sprzedaz'] },
+  { id: 'zlecenia',   label: 'Zlecenia',                roles: ['admin','technolog','sprzedaz'] },
+  { id: 'kalkulator', label: 'Kalkulator',              roles: ['admin','technolog','brygadzista'] },
+  { id: 'produkcja',  label: 'Produkcja',               roles: ['admin','technolog','brygadzista','sprzedaz'] },
+  { id: 'dashboard',  label: 'Dashboard',               roles: ['admin','technolog','brygadzista','sprzedaz'] },
+  { id: 'magazynwg',  label: 'Magazyn WG',              roles: ['admin','technolog','sprzedaz'] },
+  { id: 'klienci',    label: 'Kartoteka klientów',      roles: ['admin'] },
+  { id: 'eksport',    label: 'Eksport / kopia',         roles: ['admin','technolog'] },
 ]
 
 const ROLE_LABELS = {
