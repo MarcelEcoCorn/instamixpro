@@ -7,6 +7,8 @@ export default function Kalkulator() {
   const canEdit = ['admin', 'technolog'].includes(profile?.role)
 
   const [recipes, setRecipes] = useState([])
+  const [clients, setClients] = useState([])
+  const [selectedClient, setSelectedClient] = useState('')
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [mass, setMass] = useState(250)
   const [fifoResult, setFifoResult] = useState([])
@@ -17,15 +19,18 @@ export default function Kalkulator() {
   const [orders, setOrders] = useState([])
   const [ordersLoading, setOrdersLoading] = useState(true)
 
-  useEffect(() => {
-    loadOrders()
-  }, [])
+  useEffect(() => { loadOrders(); loadClients() }, [])
+
+  async function loadClients() {
+    const { data } = await supabase.from('clients').select('id,number,name').order('number')
+    setClients(data || [])
+  }
 
   async function loadOrders() {
     setOrdersLoading(true)
     const { data } = await supabase
       .from('orders')
-      .select('*, recipes(code, name, version)')
+      .select('*, recipes(code, name, version, client)')
       .in('status', ['nowe', 'w_realizacji'])
       .order('ship_date', { ascending: true })
     setOrders(data || [])
@@ -40,11 +45,15 @@ export default function Kalkulator() {
       .then(({ data }) => setRecipes(data || []))
   }, [])
 
+  // Receptury filtrowane wg wybranego klienta
+  const filteredRecipes = selectedClient
+    ? recipes.filter(r => r.client_id === selectedClient)
+    : recipes
+
   async function calculate() {
     if (!selectedRecipe || !mass) return
     setLoading(true)
 
-    // Pobierz aktualne zużycie przez WSZYSTKIE istniejące partie produkcyjne
     const { data: allUsed } = await supabase
       .from('production_batch_items')
       .select('ingredient_batch_id, quantity_used_kg')
@@ -53,14 +62,12 @@ export default function Kalkulator() {
       usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
     }
 
-    // Pobierz stan z v_stock (current_kg uwzględnia korekty)
     const { data: stockAll } = await supabase
       .from('v_stock')
       .select('*')
       .eq('status', 'dopuszczona')
       .order('received_date', { ascending: true })
 
-    // Oblicz dostępne = current_kg - już zużyte
     const availableMap = {}
     for (const s of (stockAll||[])) {
       const used = usedMap[s.id]||0
@@ -68,11 +75,8 @@ export default function Kalkulator() {
       if (avail > 0.001) {
         if (!availableMap[s.ingredient_id]) availableMap[s.ingredient_id] = []
         availableMap[s.ingredient_id].push({
-          id: s.id,
-          delivery_lot: s.delivery_lot,
-          current_kg: s.current_kg,
-          available: parseFloat(avail.toFixed(3)),
-          received_date: s.received_date
+          id: s.id, delivery_lot: s.delivery_lot, current_kg: s.current_kg,
+          available: parseFloat(avail.toFixed(3)), received_date: s.received_date
         })
       }
     }
@@ -87,13 +91,7 @@ export default function Kalkulator() {
         if (remaining <= 0.001) break
         const take = Math.min(remaining, row.available)
         if (take > 0.001) {
-          lots.push({
-            lot: row.delivery_lot,
-            batch_id: row.id,
-            ingredient_batch_id: row.id,
-            kg: parseFloat(take.toFixed(3)),
-            available: row.available
-          })
+          lots.push({ lot: row.delivery_lot, batch_id: row.id, ingredient_batch_id: row.id, kg: parseFloat(take.toFixed(3)), available: row.available })
           remaining = parseFloat((remaining - take).toFixed(3))
         }
       }
@@ -118,6 +116,7 @@ export default function Kalkulator() {
       foreman: prodForm.foreman,
       notes: prodForm.notes,
       technologist: profile?.full_name,
+      client: selectedRecipe.client || null,
       created_by: profile?.id
     }).select().single()
     if (!error) {
@@ -131,7 +130,6 @@ export default function Kalkulator() {
         }))
       )
       await supabase.from('production_batch_items').insert(items)
-      // Zmień status zlecenia na "w_realizacji" i powiąż z partią
       if (prodForm.order_id) {
         await supabase.from('orders').update({
           status: 'w_realizacji',
@@ -142,7 +140,6 @@ export default function Kalkulator() {
     }
     setSaving(false)
     setModal(false)
-    // Reset order_id after use
     setProdForm(p => ({ ...p, order_id: '' }))
     loadOrders()
     alert(error ? 'Błąd: ' + error.message : `Partia ${pb.lot_number} utworzona!`)
@@ -152,208 +149,103 @@ export default function Kalkulator() {
     const now = new Date()
     const dateStr = now.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
     const timeStr = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
-
     const allergenBlock = allergens.length > 0
-      ? `<div class="allergen-box">
-          <strong>⚠ ALERGENY W TEJ PARTII:</strong> ${allergens.join(', ')}
-         </div>`
+      ? `<div class="allergen-box"><strong>⚠ ALERGENY W TEJ PARTII:</strong> ${allergens.join(', ')}</div>`
       : `<div class="no-allergen-box">✓ Brak alergenów w tej partii</div>`
-
     const rows = fifoResult.map((r, idx) => {
       const lotsText = r.lots.length > 0
         ? r.lots.map((l, i) => `${l.lot}${r.lots.length > 1 ? ` (FIFO ${i + 1}: ${l.kg} kg)` : ''}`).join('<br>')
         : '<span style="color:#A32D2D">BRAK W MAGAZYNIE</span>'
-      return `
-        <tr>
-          <td class="check-cell"><div class="checkbox"></div></td>
-          <td class="num">${idx + 1}</td>
-          <td class="code">${r.ingredient?.code || ''}</td>
-          <td class="name">${r.ingredient?.name || ''}</td>
-          <td class="kg"><strong>${r.needed.toFixed(3)}</strong></td>
-          <td class="lot-cell">${lotsText}</td>
-          <td class="allergy-cell">${r.ingredient?.has_allergen ? `<span class="tag-allergy">${r.ingredient.allergen_type}</span>` : '—'}</td>
-          <td class="verify-cell"><div class="checkbox"></div></td>
-        </tr>`
+      return `<tr>
+        <td class="check-cell"><div class="checkbox"></div></td>
+        <td class="num">${idx + 1}</td>
+        <td class="code">${r.ingredient?.code || ''}</td>
+        <td class="name">${r.ingredient?.name || ''}</td>
+        <td class="kg"><strong>${r.needed.toFixed(3)}</strong></td>
+        <td class="lot-cell">${lotsText}</td>
+        <td class="allergy-cell">${r.ingredient?.has_allergen ? `<span class="tag-allergy">${r.ingredient.allergen_type}</span>` : '—'}</td>
+        <td class="verify-cell"><div class="checkbox"></div></td>
+      </tr>`
     }).join('')
-
-    const html = `<!DOCTYPE html>
-<html lang="pl">
-<head>
-<meta charset="UTF-8">
-<title>Zlecenie produkcji - ${selectedRecipe.code}</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #000; padding: 16px; }
-
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; border-bottom: 2px solid #0F6E56; padding-bottom: 10px; }
-  .header-left { flex: 1; }
-  .company { font-size: 16px; font-weight: bold; color: #0F6E56; }
-  .doc-title { font-size: 13px; font-weight: bold; margin-top: 4px; }
-  .header-right { text-align: right; font-size: 10px; color: #555; }
-  .lot-badge { background: #E1F5EE; border: 1px solid #1D9E75; border-radius: 4px; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #0F6E56; margin-top: 4px; display: inline-block; }
-
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px; }
-  .info-box { border: 1px solid #D3D1C7; border-radius: 4px; padding: 6px 10px; }
-  .info-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-  .info-value { font-size: 12px; font-weight: bold; }
-
-  .section-title { font-size: 11px; font-weight: bold; background: #0F6E56; color: #fff; padding: 5px 10px; margin-bottom: 0; }
-
-  table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-  th { background: #F1EFE8; font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px; padding: 5px 6px; border: 1px solid #D3D1C7; text-align: left; }
-  td { padding: 5px 6px; border: 1px solid #D3D1C7; vertical-align: middle; font-size: 10px; }
-  tr:nth-child(even) td { background: #FAFAF8; }
-
-  .check-cell { width: 24px; text-align: center; }
-  .checkbox { width: 14px; height: 14px; border: 1.5px solid #333; border-radius: 2px; margin: 0 auto; }
-  .num { width: 20px; text-align: center; color: #888; }
-  .code { width: 70px; font-family: monospace; font-size: 10px; }
-  .kg { width: 70px; text-align: right; }
-  .lot-cell { font-family: monospace; font-size: 9px; }
-  .verify-cell { width: 60px; text-align: center; }
-  .allergy-cell { width: 70px; }
-  .tag-allergy { background: #FCEBEB; color: #791F1F; border: 1px solid #F09595; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: bold; }
-
-  .total-row td { background: #E1F5EE !important; font-weight: bold; }
-
-  .allergen-box { background: #FCEBEB; border: 1.5px solid #E24B4A; border-radius: 4px; padding: 8px 12px; margin-bottom: 10px; font-size: 11px; color: #501313; }
-  .no-allergen-box { background: #E1F5EE; border: 1px solid #1D9E75; border-radius: 4px; padding: 6px 12px; margin-bottom: 10px; font-size: 11px; color: #085041; }
-
-  .signature-section { margin-top: 16px; border: 1px solid #D3D1C7; border-radius: 4px; padding: 12px; }
-  .signature-title { font-size: 11px; font-weight: bold; margin-bottom: 12px; border-bottom: 1px solid #D3D1C7; padding-bottom: 6px; }
-  .signature-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
-  .signature-item { }
-  .signature-label { font-size: 9px; color: #888; text-transform: uppercase; margin-bottom: 24px; }
-  .signature-line { border-bottom: 1px solid #333; margin-bottom: 4px; }
-  .signature-name { font-size: 9px; color: #888; }
-
-  .footer { margin-top: 10px; font-size: 9px; color: #888; text-align: center; border-top: 1px solid #D3D1C7; padding-top: 6px; }
-
-  .status-row { display: flex; gap: 8px; margin-bottom: 10px; }
-  .status-pill { border: 1px solid #D3D1C7; border-radius: 20px; padding: 3px 10px; font-size: 9px; display: flex; align-items: center; gap: 4px; }
-  .dot { width: 6px; height: 6px; border-radius: 50%; background: #1D9E75; display: inline-block; }
-
-  .instructions { background: #F1EFE8; border-radius: 4px; padding: 8px 12px; margin-bottom: 10px; font-size: 10px; }
-  .instructions strong { display: block; margin-bottom: 4px; }
-
-  @media print {
-    body { padding: 8px; }
-    @page { margin: 10mm; size: A4; }
-  }
-</style>
-</head>
-<body>
-
+    const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Zlecenie produkcji - ${selectedRecipe.code}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;color:#000;padding:16px}
+.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;border-bottom:2px solid #0F6E56;padding-bottom:10px}
+.company{font-size:16px;font-weight:bold;color:#0F6E56}.doc-title{font-size:13px;font-weight:bold;margin-top:4px}
+.lot-badge{background:#E1F5EE;border:1px solid #1D9E75;border-radius:4px;padding:4px 10px;font-size:12px;font-weight:bold;color:#0F6E56;margin-top:4px;display:inline-block}
+.info-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.info-box{border:1px solid #D3D1C7;border-radius:4px;padding:6px 10px}
+.info-label{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px}
+.info-value{font-size:12px;font-weight:bold}
+.section-title{font-size:11px;font-weight:bold;background:#0F6E56;color:#fff;padding:5px 10px;margin-bottom:0}
+table{width:100%;border-collapse:collapse;margin-bottom:10px}
+th{background:#F1EFE8;font-size:9px;font-weight:bold;text-transform:uppercase;padding:5px 6px;border:1px solid #D3D1C7;text-align:left}
+td{padding:5px 6px;border:1px solid #D3D1C7;vertical-align:middle;font-size:10px}
+tr:nth-child(even) td{background:#FAFAF8}
+.check-cell{width:24px;text-align:center}.checkbox{width:14px;height:14px;border:1.5px solid #333;border-radius:2px;margin:0 auto}
+.num{width:20px;text-align:center;color:#888}.code{width:70px;font-family:monospace;font-size:10px}
+.kg{width:70px;text-align:right}.lot-cell{font-family:monospace;font-size:9px}
+.verify-cell{width:60px;text-align:center}.allergy-cell{width:70px}
+.tag-allergy{background:#FCEBEB;color:#791F1F;border:1px solid #F09595;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:bold}
+.total-row td{background:#E1F5EE!important;font-weight:bold}
+.allergen-box{background:#FCEBEB;border:1.5px solid #E24B4A;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#501313}
+.no-allergen-box{background:#E1F5EE;border:1px solid #1D9E75;border-radius:4px;padding:6px 12px;margin-bottom:10px;font-size:11px;color:#085041}
+.signature-section{margin-top:16px;border:1px solid #D3D1C7;border-radius:4px;padding:12px}
+.signature-title{font-size:11px;font-weight:bold;margin-bottom:12px;border-bottom:1px solid #D3D1C7;padding-bottom:6px}
+.signature-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
+.signature-label{font-size:9px;color:#888;text-transform:uppercase;margin-bottom:24px}
+.signature-line{border-bottom:1px solid #333;margin-bottom:4px}.signature-name{font-size:9px;color:#888}
+.footer{margin-top:10px;font-size:9px;color:#888;text-align:center;border-top:1px solid #D3D1C7;padding-top:6px}
+.instructions{background:#F1EFE8;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-size:10px}
+.instructions strong{display:block;margin-bottom:4px}
+@media print{body{padding:8px}@page{margin:10mm;size:A4}}</style></head><body>
 <div class="header">
-  <div class="header-left">
+  <div>
     <div class="company">InstantMix Pro</div>
     <div class="doc-title">Zlecenie produkcji / Checklista dozowania</div>
     <div class="lot-badge">Numer partii zostanie nadany po zatwierdzeniu</div>
   </div>
-  <div class="header-right">
+  <div style="text-align:right;font-size:10px;color:#555">
     <div>Data wydruku: <strong>${dateStr}</strong></div>
     <div>Godzina: <strong>${timeStr}</strong></div>
     <div style="margin-top:4px">Wydrukował: <strong>${profile?.full_name || '—'}</strong></div>
   </div>
 </div>
-
 <div class="info-grid">
-  <div class="info-box">
-    <div class="info-label">Kod receptury</div>
-    <div class="info-value">${selectedRecipe.code}</div>
-  </div>
-  <div class="info-box">
-    <div class="info-label">Nazwa mieszanki</div>
-    <div class="info-value">${selectedRecipe.name}</div>
-  </div>
-  <div class="info-box">
-    <div class="info-label">Wersja receptury</div>
-    <div class="info-value">${selectedRecipe.version}</div>
-  </div>
-  <div class="info-box">
-    <div class="info-label">Masa wsadu</div>
-    <div class="info-value">${mass} kg</div>
-  </div>
-  <div class="info-box">
-    <div class="info-label">Linia produkcyjna</div>
-    <div class="info-value">${selectedRecipe.production_line === 'bezglutenowa' ? 'BEZGLUTENOWA' : 'Zwykła'}</div>
-  </div>
-  <div class="info-box">
-    <div class="info-label">Liczba składników</div>
-    <div class="info-value">${fifoResult.length}</div>
-  </div>
+  <div class="info-box"><div class="info-label">Kod receptury</div><div class="info-value">${selectedRecipe.code}</div></div>
+  <div class="info-box"><div class="info-label">Nazwa mieszanki</div><div class="info-value">${selectedRecipe.name}</div></div>
+  <div class="info-box"><div class="info-label">Wersja receptury</div><div class="info-value">${selectedRecipe.version}</div></div>
+  <div class="info-box"><div class="info-label">Klient</div><div class="info-value">${selectedRecipe.client || '—'}</div></div>
+  <div class="info-box"><div class="info-label">Masa wsadu</div><div class="info-value">${mass} kg</div></div>
+  <div class="info-box"><div class="info-label">Linia produkcyjna</div><div class="info-value">${selectedRecipe.production_line === 'bezglutenowa' ? 'BEZGLUTENOWA' : 'Zwykła'}</div></div>
 </div>
-
 ${allergenBlock}
-
-<div class="instructions">
-  <strong>Instrukcja dla operatora:</strong>
-  Odważyć każdy składnik zgodnie z podaną ilością (kg). Po odważeniu zaznaczyć checkbox w kolumnie "Odważono". Po zweryfikowaniu przez brygadzistę zaznaczyć checkbox w kolumnie "Weryfikacja". Gotowy wsad przekazać do mieszania.
-</div>
-
+<div class="instructions"><strong>Instrukcja dla operatora:</strong>Odważyć każdy składnik zgodnie z podaną ilością (kg). Po odważeniu zaznaczyć checkbox w kolumnie "Odważono". Po zweryfikowaniu przez brygadzistę zaznaczyć checkbox w kolumnie "Weryfikacja". Gotowy wsad przekazać do mieszania.</div>
 <div class="section-title">Lista składników do dozowania — metoda FIFO</div>
-<table>
-  <thead>
-    <tr>
-      <th class="check-cell">Odważ.</th>
-      <th class="num">Lp.</th>
-      <th class="code">Kod skł.</th>
-      <th>Nazwa składnika</th>
-      <th class="kg">Ilość (kg)</th>
-      <th>Partia dostawy (FIFO)</th>
-      <th class="allergy-cell">Alergen</th>
-      <th class="verify-cell">Weryfik.</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${rows}
-    <tr class="total-row">
-      <td></td>
-      <td></td>
-      <td colspan="2" style="text-align:right">SUMA WSADU:</td>
-      <td style="text-align:right">${fifoResult.reduce((s, r) => s + r.needed, 0).toFixed(3)} kg</td>
-      <td colspan="3"></td>
-    </tr>
-  </tbody>
-</table>
-
+<table><thead><tr>
+  <th class="check-cell">Odważ.</th><th class="num">Lp.</th><th class="code">Kod skł.</th>
+  <th>Nazwa składnika</th><th class="kg">Ilość (kg)</th><th>Partia dostawy (FIFO)</th>
+  <th class="allergy-cell">Alergen</th><th class="verify-cell">Weryfik.</th>
+</tr></thead><tbody>
+${rows}
+<tr class="total-row"><td></td><td></td><td colspan="2" style="text-align:right">SUMA WSADU:</td>
+<td style="text-align:right">${fifoResult.reduce((s, r) => s + r.needed, 0).toFixed(3)} kg</td><td colspan="3"></td></tr>
+</tbody></table>
 <div class="signature-section">
   <div class="signature-title">Potwierdzenie wykonania — podpisy</div>
   <div class="signature-grid">
-    <div class="signature-item">
-      <div class="signature-label">Operator / Dozujący</div>
-      <div class="signature-line"></div>
-      <div class="signature-name">Imię, nazwisko i podpis</div>
-      <div style="margin-top:8px; font-size:9px; color:#888">Data: _______________</div>
-    </div>
-    <div class="signature-item">
-      <div class="signature-label">Brygadzista (weryfikacja)</div>
-      <div class="signature-line"></div>
-      <div class="signature-name">Imię, nazwisko i podpis</div>
-      <div style="margin-top:8px; font-size:9px; color:#888">Data: _______________</div>
-    </div>
-    <div class="signature-item">
-      <div class="signature-label">Technolog (zatwierdził recepturę)</div>
-      <div class="signature-line"></div>
-      <div class="signature-name">Imię, nazwisko i podpis</div>
-      <div style="margin-top:8px; font-size:9px; color:#888">Data: _______________</div>
-    </div>
+    <div><div class="signature-label">Operator / Dozujący</div><div class="signature-line"></div><div class="signature-name">Imię, nazwisko i podpis</div><div style="margin-top:8px;font-size:9px;color:#888">Data: _______________</div></div>
+    <div><div class="signature-label">Brygadzista (weryfikacja)</div><div class="signature-line"></div><div class="signature-name">Imię, nazwisko i podpis</div><div style="margin-top:8px;font-size:9px;color:#888">Data: _______________</div></div>
+    <div><div class="signature-label">Technolog (zatwierdził recepturę)</div><div class="signature-line"></div><div class="signature-name">Imię, nazwisko i podpis</div><div style="margin-top:8px;font-size:9px;color:#888">Data: _______________</div></div>
   </div>
-  <div style="margin-top:12px; border-top: 1px solid #D3D1C7; padding-top:8px;">
+  <div style="margin-top:12px;border-top:1px solid #D3D1C7;padding-top:8px">
     <div class="signature-label">Uwagi / odstępstwa od receptury:</div>
-    <div style="border-bottom: 1px solid #ccc; margin-top: 20px;"></div>
-    <div style="border-bottom: 1px solid #ccc; margin-top: 14px;"></div>
+    <div style="border-bottom:1px solid #ccc;margin-top:20px"></div>
+    <div style="border-bottom:1px solid #ccc;margin-top:14px"></div>
   </div>
 </div>
-
-<div class="footer">
-  InstantMix Pro &nbsp;|&nbsp; Dokument wygenerowany automatycznie &nbsp;|&nbsp; ${dateStr} ${timeStr} &nbsp;|&nbsp; Wydrukował: ${profile?.full_name || '—'} &nbsp;|&nbsp; Wyłącznie do użytku wewnętrznego
-</div>
-
+<div class="footer">InstantMix Pro &nbsp;|&nbsp; Dokument wygenerowany automatycznie &nbsp;|&nbsp; ${dateStr} ${timeStr} &nbsp;|&nbsp; Wydrukował: ${profile?.full_name || '—'} &nbsp;|&nbsp; Wyłącznie do użytku wewnętrznego</div>
 <script>window.onload = function() { window.print(); }</script>
-</body>
-</html>`
-
+</body></html>`
     const win = window.open('', '_blank')
     win.document.write(html)
     win.document.close()
@@ -367,13 +259,11 @@ ${allergenBlock}
           <div className="page-sub">Dostęp: Technolog (edycja), Brygadzista (odczyt)</div>
         </div>
         {fifoResult.length > 0 && (
-          <button className="btn btn-primary btn-sm" onClick={printChecklist}>
-            Drukuj zlecenie produkcji
-          </button>
+          <button className="btn btn-primary btn-sm" onClick={printChecklist}>Drukuj zlecenie produkcji</button>
         )}
       </div>
 
-      {/* Podgląd zleceń do zrealizowania */}
+      {/* Zlecenia do zrealizowania */}
       <div className="card" style={{ marginBottom:10 }}>
         <div style={{ fontWeight:500, fontSize:13, marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span>Zlecenia do zrealizowania</span>
@@ -409,13 +299,11 @@ ${allergenBlock}
                       <td>
                         <button className="btn btn-sm btn-primary" style={{ fontSize:11 }} onClick={() => {
                           const recipe = recipes.find(r => r.id === o.recipe_id)
-                          if (recipe) setSelectedRecipe(recipe)
+                          if (recipe) { setSelectedRecipe(recipe); setSelectedClient(recipe.client_id||'') }
                           setMass(parseFloat(o.quantity_kg))
                           setProdForm(p => ({ ...p, order_id: o.id }))
                           window.scrollTo(0, document.body.scrollHeight)
-                        }}>
-                          Załaduj
-                        </button>
+                        }}>Załaduj</button>
                       </td>
                     </tr>
                   )
@@ -429,18 +317,25 @@ ${allergenBlock}
       <div className="card">
         <div className="fr">
           <div>
-            <label>Receptura</label>
-            <select
-              value={selectedRecipe?.id || ''}
-              onChange={e => setSelectedRecipe(recipes.find(r => r.id === e.target.value) || null)}
-              disabled={!canEdit}
-            >
-              <option value="">— wybierz recepturę —</option>
-              {recipes.map(r => <option key={r.id} value={r.id}>{r.client ? r.client + ' › ' : ''}{r.code} › {r.name} ({r.version})</option>)}
+            <label>Klient (filtr receptur)</label>
+            <select value={selectedClient} onChange={e => {
+              setSelectedClient(e.target.value)
+              setSelectedRecipe(null)
+              setFifoResult([])
+            }}>
+              <option value="">— wszyscy klienci —</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.number} — {c.name}</option>)}
             </select>
           </div>
           <div>
-            <label>Masa wsadu do wyprodukowania (kg)</label>
+            <label>Receptura</label>
+            <select value={selectedRecipe?.id || ''} onChange={e => setSelectedRecipe(filteredRecipes.find(r => r.id === e.target.value) || null)} disabled={!canEdit}>
+              <option value="">— wybierz recepturę —</option>
+              {filteredRecipes.map(r => <option key={r.id} value={r.id}>{r.client ? r.client + ' › ' : ''}{r.code} › {r.name} ({r.version})</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Masa wsadu (kg)</label>
             <input type="number" min="1" step="1" value={mass} onChange={e => setMass(parseFloat(e.target.value))} disabled={!canEdit} />
           </div>
         </div>
@@ -477,13 +372,9 @@ ${allergenBlock}
                       )),
                       hasShortageItem ? (
                         <tr key={`${r.id}-shortage`} style={{ background:'#FCEBEB55' }}>
-                          <td colSpan={2} style={{ paddingLeft:24, color:'#A32D2D', fontSize:11 }}>
-                            ⚠ Niedobór składnika
-                          </td>
+                          <td colSpan={2} style={{ paddingLeft:24, color:'#A32D2D', fontSize:11 }}>⚠ Niedobór składnika</td>
                           <td style={{ textAlign:'right', color:'#A32D2D', fontWeight:500 }}>{r.needed.toFixed(3)}</td>
-                          <td style={{ color:'#A32D2D', fontSize:11 }}>
-                            Dostępne: <b>{totalAvail.toFixed(3)} kg</b> · Brakuje: <b>{r.shortage.toFixed(3)} kg</b>
-                          </td>
+                          <td style={{ color:'#A32D2D', fontSize:11 }}>Dostępne: <b>{totalAvail.toFixed(3)} kg</b> · Brakuje: <b>{r.shortage.toFixed(3)} kg</b></td>
                           <td colSpan={2}><span className="badge b-err">NIEDOBÓR</span></td>
                         </tr>
                       ) : null
@@ -516,7 +407,7 @@ ${allergenBlock}
 
         {!loading && !selectedRecipe && (
           <div style={{ textAlign: 'center', padding: 24, color: '#888' }}>
-            Wybierz recepturę i podaj masę, aby zobaczyć dozowanie FIFO.
+            Wybierz klienta i recepturę, aby zobaczyć dozowanie FIFO.
           </div>
         )}
       </div>
@@ -527,6 +418,7 @@ ${allergenBlock}
           <div className="modal-title">Zatwierdzenie partii produkcji</div>
           <div style={{ background: '#F1EFE8', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>
             Receptura: <b>{selectedRecipe?.code} — {selectedRecipe?.name} {selectedRecipe?.version}</b><br />
+            Klient: <b>{selectedRecipe?.client || '—'}</b><br />
             Masa wsadu: <b>{mass} kg</b><br />
             Technolog: <b>{profile?.full_name}</b>
           </div>
