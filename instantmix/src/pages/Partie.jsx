@@ -173,7 +173,7 @@ export default function Partie() {
       </div>
 
       <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:1150 }}>
+        <table style={{ minWidth:1300 }}>
           <thead><tr>
             <th>Kod</th><th>Nazwa</th><th>Dostawca</th><th>Nr partii dostawy</th>
             <th>Data prod.</th><th>Ważny do</th><th>Data przyj.</th>
