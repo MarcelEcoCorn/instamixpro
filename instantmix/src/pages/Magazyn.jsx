@@ -41,13 +41,14 @@ export default function Magazyn() {
       stockMap[s.ingredient_id].original += parseFloat(s.original_kg||0)
       stockMap[s.ingredient_id].corrections += parseFloat(s.corrections_kg||0)
       if (s.status==='dopuszczona') {
-        stockMap[s.ingredient_id].total += parseFloat(s.current_kg||0)
+        const currentKg = parseFloat(s.current_kg||0)
+        stockMap[s.ingredient_id].total += currentKg
         // Wartość = current_kg * unit_price jeśli dostępna
         const price = parseFloat(s.unit_price_pln||0)
         if (price > 0) {
-          stockMap[s.ingredient_id].value += parseFloat(s.current_kg||0) * price
+          stockMap[s.ingredient_id].value += currentKg * price
         }
-        stockMap[s.ingredient_id].batches.push(s)
+        stockMap[s.ingredient_id].batches.push({...s, batch_value: price > 0 ? currentKg * price : null})
       }
     }
     const usedMap = {}
@@ -415,7 +416,9 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                           <table style={{ width:'auto', minWidth:500 }}>
                             <thead><tr>
                               <th>Nr partii dostawy</th><th>Data przyjęcia</th><th>Data ważności</th>
-                              <th style={{ textAlign:'right' }}>Stan (kg)</th><th>Status</th>
+                              <th style={{ textAlign:'right' }}>Stan (kg)</th>
+                              <th style={{ textAlign:'right' }}>Wartość (zł)</th>
+                              <th>Status</th>
                             </tr></thead>
                             <tbody>
                               {batchDetails[r.id].map(b => {
@@ -435,6 +438,9 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                                       {hasCorr && <span style={{ textDecoration:'line-through', color:'#888', marginRight:6, fontSize:11 }}>{parseFloat(b.original_kg).toFixed(3)}</span>}
                                       <span style={{ fontWeight:700, color: hasCorr ? '#A32D2D' : undefined }}>{parseFloat(b.current_kg).toFixed(3)}</span>
                                       {hasCorr && <span style={{ fontSize:10, color:'#A32D2D', marginLeft:4 }}>({parseFloat(b.corrections_kg)>0?'+':''}{parseFloat(b.corrections_kg).toFixed(3)})</span>}
+                                    </td>
+                                    <td style={{ textAlign:'right', color: b.batch_value ? '#3C3489' : '#888', fontSize:12 }}>
+                                      {b.batch_value ? b.batch_value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}
                                     </td>
                                     <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':'b-err'}`}>{b.status}</span></td>
                                   </tr>
