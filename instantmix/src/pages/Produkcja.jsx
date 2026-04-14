@@ -18,6 +18,7 @@ export default function Produkcja() {
   const [fYear, setFYear] = useState('')
   const [detail, setDetail] = useState(null)
   const [detailItems, setDetailItems] = useState([])
+  const [detailPrices, setDetailPrices] = useState({}) // batch_id -> unit_price
   const [editModal, setEditModal] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
@@ -58,13 +59,27 @@ export default function Produkcja() {
   }
 
   async function showDetail(batch) {
-    if (detail?.id === batch.id) { setDetail(null); setDetailItems([]); return }
+    if (detail?.id === batch.id) { setDetail(null); setDetailItems([]); setDetailPrices({}); return }
     const { data } = await supabase
       .from('production_batch_items')
-      .select('*, ingredient_batches(delivery_lot, received_date), ingredients(code, name, has_allergen, allergen_type)')
+      .select('*, ingredient_batches(delivery_lot, received_date, unit_price_pln), ingredients(code, name, has_allergen, allergen_type)')
       .eq('production_batch_id', batch.id)
       .order('fifo_order')
-    setDetail(batch); setDetailItems(data || [])
+    setDetail(batch)
+    setDetailItems(data || [])
+    // Build price map
+    const prices = {}
+    for (const it of (data||[])) {
+      prices[it.id] = parseFloat(it.ingredient_batches?.unit_price_pln || 0)
+    }
+    setDetailPrices(prices)
+  }
+
+  function batchTotalValue() {
+    return detailItems.reduce((s, it) => {
+      const price = parseFloat(it.ingredient_batches?.unit_price_pln || 0)
+      return price > 0 ? s + parseFloat(it.quantity_used_kg) * price : s
+    }, 0)
   }
 
   function openEdit(batch) {
@@ -91,63 +106,24 @@ export default function Produkcja() {
 
   const ef = (k, v) => setEditForm(p => ({ ...p, [k]: v }))
 
-  // Przelicz FIFO na nowo
   async function recalcFIFO(batch) {
     setRecalcId(batch.id); setRecalcMsg('Pobieram recepturę...')
     try {
-      // 1. Pobierz recipe_id z production_batches bezpośrednio
-      const { data: pb } = await supabase
-        .from('production_batches')
-        .select('recipe_id, quantity_kg')
-        .eq('id', batch.id)
-        .single()
+      const { data: pb } = await supabase.from('production_batches').select('recipe_id, quantity_kg').eq('id', batch.id).single()
       if (!pb?.recipe_id) throw new Error('Nie znaleziono receptury dla tej partii')
-
-      const { data: recipe } = await supabase
-        .from('recipes')
-        .select('*, recipe_items(*, ingredients(id,code,name))')
-        .eq('id', pb.recipe_id)
-        .single()
+      const { data: recipe } = await supabase.from('recipes').select('*, recipe_items(*, ingredients(id,code,name))').eq('id', pb.recipe_id).single()
       if (!recipe) throw new Error('Nie znaleziono receptury')
-
       setRecalcMsg('Pobieram stan magazynu...')
-
-      // 2. Pobierz partie produkcyjne z tym samym dniem lub wcześniejsze - wg LOT
-      // Pierwszeństwo mają partie z niższym numerem LOT (PROD-2025-0001 przed PROD-2025-0002)
-      const { data: allBatches } = await supabase
-        .from('production_batches')
-        .select('id, lot_number, production_date')
-        .order('lot_number', { ascending: true })
-
-      // Znajdź LOT bieżącej partii
+      const { data: allBatches } = await supabase.from('production_batches').select('id, lot_number, production_date').order('lot_number', { ascending: true })
       const thisBatch = allBatches?.find(b => b.id === batch.id)
       const thisLot = thisBatch?.lot_number || ''
-
-      // Partie które mają pierwszeństwo = niższy numer LOT (czyli wcześniejsze)
-      const priorityIds = (allBatches||[])
-        .filter(b => b.id !== batch.id && b.lot_number < thisLot)
-        .map(b => b.id)
-
-      // Pobierz zużycie tylko przez partie z wyższym priorytetem
+      const priorityIds = (allBatches||[]).filter(b => b.id !== batch.id && b.lot_number < thisLot).map(b => b.id)
       const usedMap = {}
       if (priorityIds.length > 0) {
-        const { data: otherUsed } = await supabase
-          .from('production_batch_items')
-          .select('ingredient_batch_id, quantity_used_kg')
-          .in('production_batch_id', priorityIds)
-        for (const u of (otherUsed||[])) {
-          usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
-        }
+        const { data: otherUsed } = await supabase.from('production_batch_items').select('ingredient_batch_id, quantity_used_kg').in('production_batch_id', priorityIds)
+        for (const u of (otherUsed||[])) usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
       }
-
-      // 3. Pobierz stan z v_stock (current_kg uwzględnia korekty)
-      const { data: stockAll } = await supabase
-        .from('v_stock')
-        .select('*')
-        .eq('status', 'dopuszczona')
-        .order('received_date', { ascending: true })
-
-      // Oblicz dostępne ilości = current_kg - zużyto przez inne partie
+      const { data: stockAll } = await supabase.from('v_stock').select('*').eq('status', 'dopuszczona').order('received_date', { ascending: true })
       const availableMap = {}
       for (const s of (stockAll||[])) {
         const used = usedMap[s.id]||0
@@ -157,49 +133,28 @@ export default function Produkcja() {
           availableMap[s.ingredient_id].push({ ...s, available: parseFloat(avail.toFixed(3)) })
         }
       }
-
       setRecalcMsg('Obliczam FIFO...')
       const mass = parseFloat(pb.quantity_kg)
       const newItems = []
-
       for (const item of (recipe.recipe_items||[]).sort((a,b) => a.sort_order-b.sort_order)) {
         const needed = parseFloat(((mass * item.percentage) / 100).toFixed(3))
         const rows = availableMap[item.ingredient_id] || []
-
-        let remaining = needed
-        let fifoOrder = 1
+        let remaining = needed; let fifoOrder = 1
         for (const row of rows) {
           if (remaining <= 0.001) break
           const take = Math.min(remaining, row.available)
           if (take > 0.001) {
-            newItems.push({
-              production_batch_id: batch.id,
-              ingredient_batch_id: row.id,
-              ingredient_id: item.ingredient_id,
-              quantity_used_kg: parseFloat(take.toFixed(3)),
-              fifo_order: fifoOrder++
-            })
+            newItems.push({ production_batch_id: batch.id, ingredient_batch_id: row.id, ingredient_id: item.ingredient_id, quantity_used_kg: parseFloat(take.toFixed(3)), fifo_order: fifoOrder++ })
             remaining = parseFloat((remaining - take).toFixed(3))
           }
         }
       }
-
       setRecalcMsg('Zapisuję nowe powiązania...')
       await supabase.from('production_batch_items').delete().eq('production_batch_id', batch.id)
-      if (newItems.length > 0) {
-        await supabase.from('production_batch_items').insert(newItems)
-      }
-
+      if (newItems.length > 0) await supabase.from('production_batch_items').insert(newItems)
       setRecalcMsg('Gotowe!')
       setTimeout(() => { setRecalcId(null); setRecalcMsg('') }, 1500)
-      if (detail?.id === batch.id) {
-        const { data } = await supabase
-          .from('production_batch_items')
-          .select('*, ingredient_batches(delivery_lot, received_date), ingredients(code, name, has_allergen, allergen_type)')
-          .eq('production_batch_id', batch.id)
-          .order('fifo_order')
-        setDetailItems(data || [])
-      }
+      if (detail?.id === batch.id) showDetail(batch)
     } catch (err) {
       setRecalcMsg('Błąd: ' + err.message)
       setTimeout(() => { setRecalcId(null); setRecalcMsg('') }, 3000)
@@ -207,50 +162,26 @@ export default function Produkcja() {
   }
 
   async function deleteBatch(batch) {
-    // Kaskadowe usuwanie — kolejność jest ważna (foreign keys)
-    // 1. Znajdź finished_goods powiązane z tą partią
     const { data: fg } = await supabase.from('finished_goods').select('id').eq('production_batch_id', batch.id)
     if (fg && fg.length > 0) {
       const fgIds = fg.map(f => f.id)
-      // 2. Usuń dokumenty WZ powiązane z tymi towarami
       await supabase.from('wz_documents').delete().in('finished_good_id', fgIds)
-      // 3. Usuń przyjęcia z magazynu WG
       await supabase.from('finished_goods').delete().eq('production_batch_id', batch.id)
     }
-    // 4. Odepnij zlecenie od partii (nie usuwaj zlecenia)
     await supabase.from('orders').update({ production_batch_id: null, status: 'nowe', updated_at: new Date().toISOString() }).eq('production_batch_id', batch.id)
-    // 5. Usuń pozycje składnikowe
     await supabase.from('production_batch_items').delete().eq('production_batch_id', batch.id)
-    // 6. Usuń partię
     await supabase.from('production_batches').delete().eq('id', batch.id)
     setDeleteConfirm(null)
-    if (detail?.id === batch.id) { setDetail(null); setDetailItems([]) }
+    if (detail?.id === batch.id) { setDetail(null); setDetailItems([]); setDetailPrices({}) }
     load()
   }
 
   async function openEditItems(batch) {
     setEditItemsBatch(batch)
-    // Load current items
-    const { data: items } = await supabase
-      .from('production_batch_items')
-      .select('*, ingredient_batches(delivery_lot, received_date, quantity_kg), ingredients(code, name)')
-      .eq('production_batch_id', batch.id)
-      .order('fifo_order')
-    // Load all available ingredient batches for dropdowns
-    const { data: ingBatches } = await supabase
-      .from('v_stock')
-      .select('*')
-      .eq('status', 'dopuszczona')
-      .order('ingredient_id, received_date')
-    const { data: ings } = await supabase
-      .from('ingredients').select('id,code,name').eq('status','aktywny').order('code')
-    setEditItemsList((items||[]).map(it => ({
-      id: it.id,
-      ingredient_id: it.ingredient_id,
-      ingredient_batch_id: it.ingredient_batch_id,
-      quantity_used_kg: it.quantity_used_kg,
-      fifo_order: it.fifo_order
-    })))
+    const { data: items } = await supabase.from('production_batch_items').select('*, ingredient_batches(delivery_lot, received_date, quantity_kg), ingredients(code, name)').eq('production_batch_id', batch.id).order('fifo_order')
+    const { data: ingBatches } = await supabase.from('v_stock').select('*').eq('status', 'dopuszczona').order('ingredient_id, received_date')
+    const { data: ings } = await supabase.from('ingredients').select('id,code,name').eq('status','aktywny').order('code')
+    setEditItemsList((items||[]).map(it => ({ id: it.id, ingredient_id: it.ingredient_id, ingredient_batch_id: it.ingredient_batch_id, quantity_used_kg: it.quantity_used_kg, fifo_order: it.fifo_order })))
     setAllIngBatches(ingBatches||[])
     setAllIngredients(ings||[])
     setEditItemsModal(true)
@@ -259,38 +190,16 @@ export default function Produkcja() {
   async function saveEditItems() {
     setSavingItems(true)
     await supabase.from('production_batch_items').delete().eq('production_batch_id', editItemsBatch.id)
-    const toInsert = editItemsList.filter(it => it.ingredient_id && it.ingredient_batch_id && it.quantity_used_kg).map((it, idx) => ({
-      production_batch_id: editItemsBatch.id,
-      ingredient_id: it.ingredient_id,
-      ingredient_batch_id: it.ingredient_batch_id,
-      quantity_used_kg: parseFloat(it.quantity_used_kg),
-      fifo_order: idx + 1
-    }))
+    const toInsert = editItemsList.filter(it => it.ingredient_id && it.ingredient_batch_id && it.quantity_used_kg).map((it, idx) => ({ production_batch_id: editItemsBatch.id, ingredient_id: it.ingredient_id, ingredient_batch_id: it.ingredient_batch_id, quantity_used_kg: parseFloat(it.quantity_used_kg), fifo_order: idx + 1 }))
     if (toInsert.length > 0) await supabase.from('production_batch_items').insert(toInsert)
     setSavingItems(false)
     setEditItemsModal(false)
-    if (detail?.id === editItemsBatch.id) {
-      const { data } = await supabase
-        .from('production_batch_items')
-        .select('*, ingredient_batches(delivery_lot, received_date), ingredients(code, name, has_allergen, allergen_type)')
-        .eq('production_batch_id', editItemsBatch.id)
-        .order('fifo_order')
-      setDetailItems(data||[])
-      setDetail(prev => ({...prev}))
-    }
+    if (detail?.id === editItemsBatch.id) showDetail(detail)
   }
 
-  function updateEditItem(idx, key, val) {
-    setEditItemsList(p => p.map((it, i) => i === idx ? {...it, [key]: val} : it))
-  }
-
-  function addEditItem() {
-    setEditItemsList(p => [...p, { ingredient_id:'', ingredient_batch_id:'', quantity_used_kg:'', fifo_order: p.length+1 }])
-  }
-
-  function removeEditItem(idx) {
-    setEditItemsList(p => p.filter((_, i) => i !== idx))
-  }
+  function updateEditItem(idx, key, val) { setEditItemsList(p => p.map((it, i) => i === idx ? {...it, [key]: val} : it)) }
+  function addEditItem() { setEditItemsList(p => [...p, { ingredient_id:'', ingredient_batch_id:'', quantity_used_kg:'', fifo_order: p.length+1 }]) }
+  function removeEditItem(idx) { setEditItemsList(p => p.filter((_, i) => i !== idx)) }
 
   async function exportPDF() {
     const doc = new jsPDF('l', 'mm', 'a4')
@@ -307,11 +216,7 @@ export default function Produkcja() {
   }
 
   async function exportDetailPDF(batch) {
-    const { data: items } = await supabase
-      .from('production_batch_items')
-      .select('*, ingredient_batches(delivery_lot), ingredients(code, name, has_allergen, allergen_type)')
-      .eq('production_batch_id', batch.id)
-      .order('fifo_order')
+    const { data: items } = await supabase.from('production_batch_items').select('*, ingredient_batches(delivery_lot), ingredients(code, name, has_allergen, allergen_type)').eq('production_batch_id', batch.id).order('fifo_order')
     const doc = new jsPDF()
     const pl = s => (s||'').replace(/ą/g,'a').replace(/ć/g,'c').replace(/ę/g,'e').replace(/ł/g,'l').replace(/ń/g,'n').replace(/ó/g,'o').replace(/ś/g,'s').replace(/ź/g,'z').replace(/ż/g,'z').replace(/Ą/g,'A').replace(/Ć/g,'C').replace(/Ę/g,'E').replace(/Ł/g,'L').replace(/Ń/g,'N').replace(/Ó/g,'O').replace(/Ś/g,'S').replace(/Ź/g,'Z').replace(/Ż/g,'Z')
     doc.setFontSize(14); doc.text(`Raport partii: ${pl(batch.lot_number)}`, 14, 16)
@@ -339,6 +244,9 @@ export default function Produkcja() {
     })
   ]
 
+  const totalVal = batchTotalValue()
+  const hasValues = detailItems.some(it => parseFloat(it.ingredient_batches?.unit_price_pln||0) > 0)
+
   return (
     <div>
       <div className="page-header">
@@ -359,7 +267,7 @@ export default function Produkcja() {
           </div>
           <div><label>Rok</label>
             <select value={fYear} onChange={e => setFYear(e.target.value)}>
-              <option value="">—</option><option value="2025">2025</option><option value="2024">2024</option>
+              <option value="">—</option><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option>
             </select>
           </div>
           <div><button className="btn btn-sm" onClick={() => { setSearch(''); setFDay(''); setFMonth(''); setFYear('') }}>Wyczyść</button></div>
@@ -373,11 +281,7 @@ export default function Produkcja() {
         <div className="stat-card"><div className="stat-label">Wstrzymane</div><div className="stat-val" style={{ color:'#A32D2D' }}>{stats.blocked}</div></div>
       </div>
 
-      {recalcId && (
-        <div className="info-box" style={{ marginBottom:10 }}>
-          <span className="spinner" style={{ marginRight:8 }} />{recalcMsg}
-        </div>
-      )}
+      {recalcId && <div className="info-box" style={{ marginBottom:10 }}><span className="spinner" style={{ marginRight:8 }} />{recalcMsg}</div>}
 
       <div className="card-0" style={{ overflowX:'auto' }}>
         <table style={{ minWidth:980 }}>
@@ -393,8 +297,7 @@ export default function Produkcja() {
               <React.Fragment key={b.id}>
                 <tr>
                   <td style={{ textAlign:'center' }}>
-                    <button onClick={() => showDetail(b)}
-                      style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'#5F5E5A', padding:'2px 4px' }}>
+                    <button onClick={() => showDetail(b)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'#5F5E5A', padding:'2px 4px' }}>
                       {detail?.id === b.id ? '▲' : '▼'}
                     </button>
                   </td>
@@ -412,17 +315,7 @@ export default function Produkcja() {
                       <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
                       {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
                       {isAdmin && <button className="btn btn-sm" style={{ background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80' }} onClick={() => openEditItems(b)} title="Edytuj partie składników">Skł.</button>}
-                      {isAdmin && (
-                        <button
-                          className="btn btn-sm"
-                          style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }}
-                          onClick={() => recalcFIFO(b)}
-                          disabled={recalcId === b.id}
-                          title="Przelicz ponownie FIFO według aktualnego stanu magazynu"
-                        >
-                          {recalcId === b.id ? '...' : '↻ FIFO'}
-                        </button>
-                      )}
+                      {isAdmin && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }} onClick={() => recalcFIFO(b)} disabled={recalcId === b.id} title="Przelicz ponownie FIFO">{recalcId === b.id ? '...' : '↻ FIFO'}</button>}
                       {isAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)} title="Usuń partię">Usuń</button>}
                     </div>
                   </td>
@@ -431,28 +324,50 @@ export default function Produkcja() {
                   <tr>
                     <td colSpan={11} style={{ padding:0, background:'#F9F8F5' }}>
                       <div style={{ padding:'10px 16px 12px 40px' }}>
-                        <div className="flex" style={{ marginBottom:8, flexWrap:'wrap', gap:6 }}>
+                        <div className="flex" style={{ marginBottom:8, flexWrap:'wrap', gap:6, alignItems:'center' }}>
                           <span style={{ fontWeight:500, color:'#0F6E56', fontSize:12 }}>{b.recipe_name} — {b.lot_number}</span>
                           {b.client && <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'2px 8px', borderRadius:999, fontSize:11 }}>{b.client}</span>}
                           <span className="muted" style={{ fontSize:12 }}>{b.production_date} | {b.quantity_kg} kg</span>
+                          {isAdmin && hasValues && totalVal > 0 && (
+                            <span style={{ background:'#EEEDFE', color:'#3C3489', padding:'2px 10px', borderRadius:999, fontSize:12, fontWeight:600 }}>
+                              Wartość surowców: {totalVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł
+                            </span>
+                          )}
                         </div>
                         <div className="muted" style={{ marginBottom:8, fontSize:12 }}>
                           Operator: {b.operator||'—'} &nbsp;|&nbsp; Brygadzista: {b.foreman||'—'} &nbsp;|&nbsp; Technolog: {b.technologist||'—'}
                           {b.notes && <span> &nbsp;|&nbsp; Uwagi: {b.notes}</span>}
                         </div>
                         <table style={{ width:'auto', minWidth:600 }}>
-                          <thead><tr><th>Kod skł.</th><th>Nazwa składnika</th><th>Partia dostawy</th><th>Użyto (kg)</th><th>FIFO</th><th>Alergen</th></tr></thead>
+                          <thead><tr>
+                            <th>Kod skł.</th><th>Nazwa składnika</th><th>Partia dostawy</th>
+                            <th style={{textAlign:'right'}}>Użyto (kg)</th><th>FIFO</th>
+                            {isAdmin && <th style={{textAlign:'right'}}>Wartość (zł)</th>}
+                            <th>Alergen</th>
+                          </tr></thead>
                           <tbody>
-                            {detailItems.map(it => (
-                              <tr key={it.id}>
-                                <td><span className="lot">{it.ingredients?.code}</span></td>
-                                <td>{it.ingredients?.name}</td>
-                                <td><span className="lot">{it.ingredient_batches?.delivery_lot}</span>{it.fifo_order>1 && <span className="fifo-badge">FIFO {it.fifo_order}</span>}</td>
-                                <td style={{ textAlign:'right', fontWeight:500 }}>{it.quantity_used_kg}</td>
-                                <td><span className="badge b-info" style={{ fontSize:10 }}>#{it.fifo_order}</span></td>
-                                <td>{it.ingredients?.has_allergen ? <span className="badge b-err">{it.ingredients.allergen_type}</span> : <span className="muted">—</span>}</td>
+                            {detailItems.map(it => {
+                              const price = parseFloat(it.ingredient_batches?.unit_price_pln || 0)
+                              const val = price > 0 ? parseFloat(it.quantity_used_kg) * price : null
+                              return (
+                                <tr key={it.id}>
+                                  <td><span className="lot">{it.ingredients?.code}</span></td>
+                                  <td>{it.ingredients?.name}</td>
+                                  <td><span className="lot">{it.ingredient_batches?.delivery_lot}</span>{it.fifo_order>1 && <span className="fifo-badge">FIFO {it.fifo_order}</span>}</td>
+                                  <td style={{ textAlign:'right', fontWeight:500 }}>{it.quantity_used_kg}</td>
+                                  <td><span className="badge b-info" style={{ fontSize:10 }}>#{it.fifo_order}</span></td>
+                                  {isAdmin && <td style={{ textAlign:'right', fontSize:12, color: val ? '#3C3489' : '#888' }}>{val ? val.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>}
+                                  <td>{it.ingredients?.has_allergen ? <span className="badge b-err">{it.ingredients.allergen_type}</span> : <span className="muted">—</span>}</td>
+                                </tr>
+                              )
+                            })}
+                            {isAdmin && hasValues && totalVal > 0 && (
+                              <tr style={{ background:'#EEEDFE' }}>
+                                <td colSpan={isAdmin ? 5 : 4} style={{ textAlign:'right', fontWeight:600, color:'#3C3489' }}>SUMA wartości surowców:</td>
+                                <td style={{ textAlign:'right', fontWeight:700, color:'#3C3489' }}>{totalVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>
+                                <td></td>
                               </tr>
-                            ))}
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -482,22 +397,15 @@ export default function Produkcja() {
       <div className={`modal-overlay ${editItemsModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditItemsModal(false)}>
         <div className="modal" style={{ maxWidth:700 }}>
           <div className="modal-title">Edycja składników partii — {editItemsBatch?.lot_number}</div>
-          <div className="warn-box" style={{ marginBottom:10 }}>
-            Ręczna edycja składników — uwaga: zmiana może być niezgodna z zasadami FIFO. Użyj tylko w wyjątkowych przypadkach.
-          </div>
+          <div className="warn-box" style={{ marginBottom:10 }}>Ręczna edycja składników — uwaga: zmiana może być niezgodna z zasadami FIFO.</div>
           <div style={{ overflowX:'auto', marginBottom:10 }}>
             <table style={{ minWidth:580 }}>
-              <thead><tr>
-                <th>Składnik</th><th>Partia dostawy</th><th>Użyto (kg)</th><th style={{width:32}}></th>
-              </tr></thead>
+              <thead><tr><th>Składnik</th><th>Partia dostawy</th><th>Użyto (kg)</th><th style={{width:32}}></th></tr></thead>
               <tbody>
                 {editItemsList.map((it, idx) => (
                   <tr key={idx}>
                     <td>
-                      <select value={it.ingredient_id} onChange={e => {
-                        updateEditItem(idx, 'ingredient_id', e.target.value)
-                        updateEditItem(idx, 'ingredient_batch_id', '')
-                      }} style={{ fontSize:12, width:'100%' }}>
+                      <select value={it.ingredient_id} onChange={e => { updateEditItem(idx, 'ingredient_id', e.target.value); updateEditItem(idx, 'ingredient_batch_id', '') }} style={{ fontSize:12, width:'100%' }}>
                         <option value="">— wybierz składnik —</option>
                         {allIngredients.map(i => <option key={i.id} value={i.id}>{i.code} — {i.name}</option>)}
                       </select>
@@ -506,7 +414,7 @@ export default function Produkcja() {
                       <select value={it.ingredient_batch_id} onChange={e => updateEditItem(idx, 'ingredient_batch_id', e.target.value)} style={{ fontSize:12, width:'100%' }} disabled={!it.ingredient_id}>
                         <option value="">— wybierz partię —</option>
                         {allIngBatches.filter(b => b.ingredient_id === it.ingredient_id).map(b => (
-                          <option key={b.id} value={b.id}>{b.delivery_lot} ({parseFloat(b.current_kg).toFixed(3)} kg dost. {b.received_date})</option>
+                          <option key={b.id} value={b.id}>{b.delivery_lot} ({parseFloat(b.current_kg).toFixed(3)} kg)</option>
                         ))}
                       </select>
                     </td>
@@ -539,11 +447,11 @@ export default function Produkcja() {
             <input value={editForm.client||''} onChange={e => ef('client',e.target.value)} placeholder="np. Firma ABC" />
           </div>
           <div className="fr">
-            <div><label>Operator</label><input value={editForm.operator||''} onChange={e => ef('operator',e.target.value)} placeholder="Imię, nazwisko" /></div>
-            <div><label>Brygadzista</label><input value={editForm.foreman||''} onChange={e => ef('foreman',e.target.value)} placeholder="Imię, nazwisko" /></div>
+            <div><label>Operator</label><input value={editForm.operator||''} onChange={e => ef('operator',e.target.value)} /></div>
+            <div><label>Brygadzista</label><input value={editForm.foreman||''} onChange={e => ef('foreman',e.target.value)} /></div>
           </div>
           <div className="fr">
-            <div><label>Technolog</label><input value={editForm.technologist||''} onChange={e => ef('technologist',e.target.value)} placeholder="Imię, nazwisko" /></div>
+            <div><label>Technolog</label><input value={editForm.technologist||''} onChange={e => ef('technologist',e.target.value)} /></div>
             <div><label>Status</label>
               <select value={editForm.status||'wyprodukowana'} onChange={e => ef('status',e.target.value)}>
                 <option value="w_trakcie">W trakcie</option>
@@ -553,7 +461,7 @@ export default function Produkcja() {
               </select>
             </div>
           </div>
-          <div><label>Uwagi</label><input value={editForm.notes||''} onChange={e => ef('notes',e.target.value)} placeholder="opcjonalne" /></div>
+          <div><label>Uwagi</label><input value={editForm.notes||''} onChange={e => ef('notes',e.target.value)} /></div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setEditModal(false)}>Anuluj</button>
             <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>{saving?'Zapisywanie...':'Zapisz zmiany'}</button>
