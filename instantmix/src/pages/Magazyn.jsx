@@ -59,11 +59,23 @@ export default function Magazyn() {
       const availableStock = stockMap[ing.id]?.total||0
       const originalStock = stockMap[ing.id]?.original||0
       const correctionsTotal = stockMap[ing.id]?.corrections||0
-      const valueTotal = stockMap[ing.id]?.value||0
       const usedTotal = usedMap[ing.id]||0
       const current = Math.max(0, availableStock - usedTotal)
       const minimum = parseFloat(ing.minimum_stock_kg||0)
       const batchCount = stockMap[ing.id]?.batches?.length||0
+
+      // Wartość stanu aktualnego: FIFO — odejmuj zużycie od najstarszych partii
+      let remaining_used = usedTotal
+      let currentValue = 0
+      const batches = (stockMap[ing.id]?.batches||[]).slice().sort((a,b) => new Date(a.received_date) - new Date(b.received_date))
+      for (const b of batches) {
+        const bKg = parseFloat(b.current_kg||0)
+        const bPrice = parseFloat(b.unit_price_pln||0)
+        const afterUse = Math.max(0, bKg - remaining_used)
+        remaining_used = Math.max(0, remaining_used - bKg)
+        if (bPrice > 0 && afterUse > 0) currentValue += afterUse * bPrice
+      }
+
       let alert = 'ok'
       if (minimum>0) {
         if (current===0) alert='empty'
@@ -77,7 +89,7 @@ export default function Magazyn() {
         corrections_total:parseFloat(correctionsTotal.toFixed(3)),
         used_total:parseFloat(usedTotal.toFixed(3)),
         current:parseFloat(current.toFixed(3)),
-        value:parseFloat(valueTotal.toFixed(2)),
+        value:parseFloat(currentValue.toFixed(2)),
         minimum, batch_count:batchCount, alert }
     })
     setRows(result)
