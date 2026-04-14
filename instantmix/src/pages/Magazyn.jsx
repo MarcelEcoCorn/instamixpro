@@ -15,7 +15,6 @@ export default function Magazyn() {
   const [expandedId, setExpandedId] = useState(null)
   const [batchDetails, setBatchDetails] = useState({})
 
-  // Bilans
   const [bilansDat1, setBilansDat1] = useState(() => {
     const d = new Date(); d.setDate(1)
     return d.toISOString().slice(0,10)
@@ -38,12 +37,16 @@ export default function Magazyn() {
 
     const stockMap = {}
     for (const s of (stock||[])) {
-      if (!stockMap[s.ingredient_id]) stockMap[s.ingredient_id] = { total:0, original:0, corrections:0, batches:[] }
-      // include all statuses for original/corrections tracking, but only dopuszczona for available stock
+      if (!stockMap[s.ingredient_id]) stockMap[s.ingredient_id] = { total:0, original:0, corrections:0, value:0, batches:[] }
       stockMap[s.ingredient_id].original += parseFloat(s.original_kg||0)
       stockMap[s.ingredient_id].corrections += parseFloat(s.corrections_kg||0)
       if (s.status==='dopuszczona') {
         stockMap[s.ingredient_id].total += parseFloat(s.current_kg||0)
+        // Wartość = current_kg * unit_price jeśli dostępna
+        const price = parseFloat(s.unit_price_pln||0)
+        if (price > 0) {
+          stockMap[s.ingredient_id].value += parseFloat(s.current_kg||0) * price
+        }
         stockMap[s.ingredient_id].batches.push(s)
       }
     }
@@ -52,9 +55,10 @@ export default function Magazyn() {
       usedMap[u.ingredient_id] = (usedMap[u.ingredient_id]||0) + parseFloat(u.quantity_used_kg||0)
     }
     const result = (ingredients||[]).map(ing => {
-      const availableStock = stockMap[ing.id]?.total||0   // current_kg (after corrections) of dopuszczona batches
-      const originalStock = stockMap[ing.id]?.original||0  // original_kg before corrections
-      const correctionsTotal = stockMap[ing.id]?.corrections||0  // sum of all corrections
+      const availableStock = stockMap[ing.id]?.total||0
+      const originalStock = stockMap[ing.id]?.original||0
+      const correctionsTotal = stockMap[ing.id]?.corrections||0
+      const valueTotal = stockMap[ing.id]?.value||0
       const usedTotal = usedMap[ing.id]||0
       const current = Math.max(0, availableStock - usedTotal)
       const minimum = parseFloat(ing.minimum_stock_kg||0)
@@ -72,6 +76,7 @@ export default function Magazyn() {
         corrections_total:parseFloat(correctionsTotal.toFixed(3)),
         used_total:parseFloat(usedTotal.toFixed(3)),
         current:parseFloat(current.toFixed(3)),
+        value:parseFloat(valueTotal.toFixed(2)),
         minimum, batch_count:batchCount, alert }
     })
     setRows(result)
@@ -80,11 +85,8 @@ export default function Magazyn() {
 
   async function loadBatchDetails(ingredientId) {
     if (expandedId === ingredientId) { setExpandedId(null); return }
-    // Use v_stock to get current_kg (after corrections)
     const { data } = await supabase
-      .from('v_stock')
-      .select('*')
-      .eq('ingredient_id', ingredientId)
+      .from('v_stock').select('*').eq('ingredient_id', ingredientId)
       .order('received_date', { ascending: true })
     setBatchDetails(p => ({ ...p, [ingredientId]: data||[] }))
     setExpandedId(ingredientId)
@@ -105,6 +107,8 @@ export default function Magazyn() {
     warning: rows.filter(r => r.alert==='warning').length,
     empty: rows.filter(r => r.current===0).length,
   }
+
+  const totalValue = filtered.reduce((s,r) => s + r.value, 0)
 
   async function saveMinimum(ingredientId, value) {
     setSavingMin(p => ({ ...p, [ingredientId]:true }))
@@ -139,9 +143,7 @@ export default function Magazyn() {
   }
 
   function setMiesiac() {
-    const now = new Date()
-    const y = now.getFullYear()
-    const m = now.getMonth()
+    const now = new Date(); const y = now.getFullYear(); const m = now.getMonth()
     const first = `${y}-${String(m+1).padStart(2,'0')}-01`
     const lastDay = new Date(y, m+1, 0).getDate()
     const last = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
@@ -149,11 +151,8 @@ export default function Magazyn() {
   }
 
   function setKwartal() {
-    const now = new Date()
-    const y = now.getFullYear()
-    const q = Math.floor(now.getMonth()/3)
-    const firstMonth = q*3+1
-    const lastMonth = q*3+3
+    const now = new Date(); const y = now.getFullYear(); const q = Math.floor(now.getMonth()/3)
+    const firstMonth = q*3+1; const lastMonth = q*3+3
     const first = `${y}-${String(firstMonth).padStart(2,'0')}-01`
     const lastDay = new Date(y, lastMonth, 0).getDate()
     const last = `${y}-${String(lastMonth).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
@@ -168,65 +167,22 @@ export default function Magazyn() {
   async function obliczBilans() {
     setBilansLoading(true); setShowBilans(true)
     const d1 = bilansDat1, d2 = bilansDat2
-
-    const { data: ingredients } = await supabase
-      .from('ingredients').select('id,code,name').eq('status','aktywny').order('code')
-
-    // Przyjęcia w zakresie dat
-    const { data: przyj } = await supabase
-      .from('ingredient_batches')
-      .select('ingredient_id, quantity_kg, received_date')
-      .gte('received_date', d1).lte('received_date', d2)
-
-    // Korekty w zakresie dat
-    const { data: korr } = await supabase
-      .from('stock_corrections')
-      .select('ingredient_batch_id, delta_kg, event_date')
-      .gte('event_date', d1).lte('event_date', d2)
-
-    // Zużycie produkcyjne w zakresie dat
-    const { data: prod } = await supabase
-      .from('production_batch_items')
-      .select('ingredient_id, quantity_used_kg, production_batches(production_date)')
-      .gte('production_batches.production_date', d1).lte('production_batches.production_date', d2)
-
-    // Stan przed datą 1 (bilans otwarcia)
-    const { data: stockBefore } = await supabase
-      .from('ingredient_batches')
-      .select('ingredient_id, quantity_kg, received_date')
-      .lt('received_date', d1)
-
-    const { data: corrBefore } = await supabase
-      .from('stock_corrections')
-      .select('ingredient_batch_id, delta_kg')
-      .lt('event_date', d1)
-
-    const { data: prodBefore } = await supabase
-      .from('production_batch_items')
-      .select('ingredient_id, quantity_used_kg, production_batches(production_date)')
-
-    const przychMap = {}, rozchodMap = {}, korrMap = {}, openMap = {}
-
-    for (const p of (przyj||[])) {
-      przychMap[p.ingredient_id] = (przychMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
-    }
+    const { data: ingredients } = await supabase.from('ingredients').select('id,code,name').eq('status','aktywny').order('code')
+    const { data: przyj } = await supabase.from('ingredient_batches').select('ingredient_id, quantity_kg, received_date').gte('received_date', d1).lte('received_date', d2)
+    const { data: prod } = await supabase.from('production_batch_items').select('ingredient_id, quantity_used_kg, production_batches(production_date)').gte('production_batches.production_date', d1).lte('production_batches.production_date', d2)
+    const { data: stockBefore } = await supabase.from('ingredient_batches').select('ingredient_id, quantity_kg').lt('received_date', d1)
+    const { data: prodBefore } = await supabase.from('production_batch_items').select('ingredient_id, quantity_used_kg, production_batches(production_date)')
+    const przychMap = {}, rozchodMap = {}, openMap = {}
+    for (const p of (przyj||[])) przychMap[p.ingredient_id] = (przychMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
     for (const p of (prod||[])) {
       if (p.production_batches?.production_date >= d1 && p.production_batches?.production_date <= d2)
         rozchodMap[p.ingredient_id] = (rozchodMap[p.ingredient_id]||0) + parseFloat(p.quantity_used_kg)
     }
-
-    // Bilans otwarcia = przyjęte przed d1 - zużyte przed d1 + korekty przed d1
-    for (const p of (stockBefore||[])) {
-      openMap[p.ingredient_id] = (openMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
-    }
+    for (const p of (stockBefore||[])) openMap[p.ingredient_id] = (openMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
     for (const p of (prodBefore||[])) {
       if (p.production_batches?.production_date < d1)
         openMap[p.ingredient_id] = (openMap[p.ingredient_id]||0) - parseFloat(p.quantity_used_kg)
     }
-    for (const c of (corrBefore||[])) {
-      // uproszczone - delta do bilansu otwarcia
-    }
-
     const bilans = (ingredients||[]).map(ing => {
       const open = Math.max(0, parseFloat((openMap[ing.id]||0).toFixed(3)))
       const przych = parseFloat((przychMap[ing.id]||0).toFixed(3))
@@ -234,105 +190,41 @@ export default function Magazyn() {
       const close = parseFloat(Math.max(0, open+przych-rozch).toFixed(3))
       return { id:ing.id, code:ing.code, name:ing.name, open, przych, rozch, close }
     }).filter(r => r.open>0||r.przych>0||r.rozch>0||r.close>0)
-
-    setBilansData(bilans)
-    setBilansLoading(false)
+    setBilansData(bilans); setBilansLoading(false)
   }
 
   function printBilans() {
     const d1str = new Date(bilansDat1).toLocaleDateString('pl-PL')
     const d2str = new Date(bilansDat2).toLocaleDateString('pl-PL')
-    const rows = bilansData.map((r,i) => `
-      <tr>
-        <td>${i+1}</td><td>${r.code}</td><td>${r.name}</td>
-        <td style="text-align:right">${r.open.toFixed(3)}</td>
-        <td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td>
-        <td style="text-align:right;color:#633806">${r.rozch.toFixed(3)}</td>
-        <td style="text-align:right;font-weight:bold">${r.close.toFixed(3)}</td>
-        <td></td>
-      </tr>`).join('')
-    const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8">
-<title>Bilans magazynowy ${d1str} - ${d2str}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Arial,sans-serif;font-size:10px;padding:14px}
-  .header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}
-  .company{font-size:15px;font-weight:bold;color:#0F6E56}
-  .title{font-size:12px;font-weight:bold;margin-top:3px}
-  .period{font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px}
-  table{width:100%;border-collapse:collapse;margin-bottom:10px}
-  th{background:#0F6E56;color:#fff;padding:5px;border:1px solid #085041;font-size:8px;text-align:left}
-  td{padding:4px 5px;border:1px solid #D3D1C7;font-size:9px}
-  tr:nth-child(even) td{background:#FAFAF8}
-  .total td{background:#E1F5EE!important;font-weight:bold}
-  .sig{margin-top:14px;border:1px solid #D3D1C7;border-radius:4px;padding:10px}
-  .sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:10px}
-  .sig-line{border-bottom:1px solid #333;margin-bottom:3px;margin-top:20px}
-  .sig-label{font-size:8px;color:#888;text-transform:uppercase}
-  .footer{margin-top:8px;font-size:8px;color:#888;text-align:center;border-top:1px solid #D3D1C7;padding-top:5px}
-  @media print{@page{margin:8mm;size:A4}}
-</style></head><body>
-<div class="header">
-  <div>
-    <div class="company">InstantMix Pro</div>
-    <div class="title">Bilans magazynowy składników</div>
-    <div class="period">Okres: ${d1str} — ${d2str}</div>
-  </div>
-  <div style="text-align:right;font-size:9px;color:#555">
-    Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} ${new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}<br>
-    Wydrukował: ${profile?.full_name||'—'}
-  </div>
-</div>
-<table>
-  <thead><tr>
-    <th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th>
-    <th style="width:80px;text-align:right">Bilans otwarcia (kg)</th>
-    <th style="width:80px;text-align:right">Przychód (kg)</th>
-    <th style="width:80px;text-align:right">Rozchód (kg)</th>
-    <th style="width:80px;text-align:right">Bilans zamknięcia (kg)</th>
-    <th style="width:100px">Uwagi</th>
-  </tr></thead>
-  <tbody>
-    ${rows}
-    <tr class="total">
-      <td colspan="3" style="text-align:right">SUMA:</td>
-      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.open,0).toFixed(3)}</td>
-      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
-      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
-      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.close,0).toFixed(3)}</td>
-      <td></td>
-    </tr>
-  </tbody>
-</table>
-<div class="sig">
-  <div style="font-weight:bold;font-size:10px;border-bottom:1px solid #D3D1C7;padding-bottom:5px">Potwierdzenie bilansu</div>
-  <div class="sig-grid">
-    <div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div>
-    <div><div class="sig-label">Zatwierdził (Brygadzista)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div>
-    <div><div class="sig-label">Zatwierdził (Kierownik)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div>
-  </div>
-</div>
+    const rowsHtml = bilansData.map((r,i) => `<tr><td>${i+1}</td><td>${r.code}</td><td>${r.name}</td><td style="text-align:right">${r.open.toFixed(3)}</td><td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td><td style="text-align:right;color:#633806">${r.rozch.toFixed(3)}</td><td style="text-align:right;font-weight:bold">${r.close.toFixed(3)}</td><td></td></tr>`).join('')
+    const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Bilans magazynowy</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:10px;padding:14px}
+.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}
+.company{font-size:15px;font-weight:bold;color:#0F6E56}.title{font-size:12px;font-weight:bold;margin-top:3px}
+.period{font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px}
+table{width:100%;border-collapse:collapse;margin-bottom:10px}
+th{background:#0F6E56;color:#fff;padding:5px;border:1px solid #085041;font-size:8px;text-align:left}
+td{padding:4px 5px;border:1px solid #D3D1C7;font-size:9px}tr:nth-child(even) td{background:#FAFAF8}
+.total td{background:#E1F5EE!important;font-weight:bold}
+.sig{margin-top:14px;border:1px solid #D3D1C7;border-radius:4px;padding:10px}
+.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:10px}
+.sig-line{border-bottom:1px solid #333;margin-bottom:3px;margin-top:20px}
+.sig-label{font-size:8px;color:#888;text-transform:uppercase}
+.footer{margin-top:8px;font-size:8px;color:#888;text-align:center;border-top:1px solid #D3D1C7;padding-top:5px}
+@media print{@page{margin:8mm;size:A4}}</style></head><body>
+<div class="header"><div><div class="company">InstantMix Pro</div><div class="title">Bilans magazynowy składników</div><div class="period">Okres: ${d1str} — ${d2str}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} ${new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}<br>Wydrukował: ${profile?.full_name||'—'}</div></div>
+<table><thead><tr><th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th><th style="width:80px;text-align:right">Bilans otwarcia (kg)</th><th style="width:80px;text-align:right">Przychód (kg)</th><th style="width:80px;text-align:right">Rozchód (kg)</th><th style="width:80px;text-align:right">Bilans zamknięcia (kg)</th><th style="width:100px">Uwagi</th></tr></thead>
+<tbody>${rowsHtml}<tr class="total"><td colspan="3" style="text-align:right">SUMA:</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.open,0).toFixed(3)}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.close,0).toFixed(3)}</td><td></td></tr></tbody></table>
+<div class="sig"><div style="font-weight:bold;font-size:10px;border-bottom:1px solid #D3D1C7;padding-bottom:5px">Potwierdzenie bilansu</div><div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Brygadzista)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Kierownik)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div></div>
 <div class="footer">InstantMix Pro | Bilans magazynowy | ${d1str} — ${d2str} | ${profile?.full_name||'—'}</div>
-<script>window.onload=function(){window.print()}</script>
-</body></html>`
-    const win = window.open('','_blank')
-    win.document.write(html); win.document.close()
+<script>window.onload=function(){window.print()}</script></body></html>`
+    const win = window.open('','_blank'); win.document.write(html); win.document.close()
   }
 
   function printInventory() {
     const dateStr = new Date().toLocaleDateString('pl-PL')
     const timeStr = new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})
-    const tableRows = filtered.map((r,i) => `
-      <tr>
-        <td>${i+1}</td><td style="font-family:monospace">${r.code}</td><td>${r.name}</td>
-        <td style="text-align:right">${r.in_stock.toFixed(3)}</td>
-        <td style="text-align:right">${r.corrections_total !== 0 ? (r.corrections_total > 0 ? '+' : '') + r.corrections_total.toFixed(3) : '—'}</td>
-        <td style="text-align:right">${r.used_total.toFixed(3)}</td>
-        <td style="text-align:right"><strong>${r.current.toFixed(3)}</strong></td>
-        <td style="text-align:right">${r.minimum>0?r.minimum.toFixed(3):'—'}</td>
-        <td>${r.alert==='empty'?'<span style="color:#791F1F;font-weight:bold">Brak</span>':r.alert==='critical'?'<span style="color:#791F1F;font-weight:bold">Krytyczny</span>':r.alert==='warning'?'<span style="color:#633806">Niski</span>':'OK'}</td>
-        <td></td>
-      </tr>`).join('')
+    const tableRows = filtered.map((r,i) => `<tr><td>${i+1}</td><td style="font-family:monospace">${r.code}</td><td>${r.name}</td><td style="text-align:right">${r.in_stock.toFixed(3)}</td><td style="text-align:right">${r.corrections_total !== 0 ? (r.corrections_total > 0 ? '+' : '') + r.corrections_total.toFixed(3) : '—'}</td><td style="text-align:right">${r.used_total.toFixed(3)}</td><td style="text-align:right"><strong>${r.current.toFixed(3)}</strong></td><td style="text-align:right">${r.value > 0 ? r.value.toLocaleString('pl-PL', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' zł' : '—'}</td><td style="text-align:right">${r.minimum>0?r.minimum.toFixed(3):'—'}</td><td>${r.alert==='empty'?'<span style="color:#791F1F;font-weight:bold">Brak</span>':r.alert==='critical'?'<span style="color:#791F1F;font-weight:bold">Krytyczny</span>':r.alert==='warning'?'<span style="color:#633806">Niski</span>':'OK'}</td><td></td></tr>`).join('')
     const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Inwentura magazynowa</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:10px;padding:14px}
 .header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}
@@ -346,36 +238,12 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
 .sig-line{border-bottom:1px solid #333;margin-bottom:3px;margin-top:20px}
 .sig-label{font-size:8px;color:#888;text-transform:uppercase}
 @media print{@page{margin:8mm;size:A4}}</style></head><body>
-<div class="header">
-  <div><div class="company">InstantMix Pro</div>
-  <div class="title">Inwentura magazynowa składników</div>
-  <div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Stan na dzień: ${dateStr}</div></div>
-  <div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${dateStr} ${timeStr}<br>Wydrukował: ${profile?.full_name||'—'}</div>
-</div>
-<table><thead><tr>
-  <th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th>
-  <th style="width:70px;text-align:right">Przyjęto (kg)</th><th style="width:60px;text-align:right">Korekty (kg)</th><th style="width:70px;text-align:right">Zużyto (kg)</th>
-  <th style="width:70px;text-align:right">Stan (kg)</th><th style="width:70px;text-align:right">Minimum (kg)</th>
-  <th style="width:60px">Status</th><th style="width:100px">Uwagi / korekta</th>
-</tr></thead><tbody>
-  ${tableRows}
-  <tr class="total"><td colspan="3" style="text-align:right">SUMA:</td>
-  <td style="text-align:right">${filtered.reduce((s,r)=>s+r.in_stock,0).toFixed(3)}</td>
-  <td style="text-align:right">${filtered.reduce((s,r)=>s+r.corrections_total,0).toFixed(3)}</td>
-  <td style="text-align:right">${filtered.reduce((s,r)=>s+r.used_total,0).toFixed(3)}</td>
-  <td style="text-align:right">${filtered.reduce((s,r)=>s+r.current,0).toFixed(3)}</td>
-  <td colspan="3"></td></tr>
-</tbody></table>
-<div class="sig"><div style="font-weight:bold;font-size:10px;border-bottom:1px solid #D3D1C7;padding-bottom:5px">Potwierdzenie inwentury</div>
-<div class="sig-grid">
-  <div><div class="sig-label">Przeprowadził inwenturę</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div>
-  <div><div class="sig-label">Zatwierdził (Brygadzista)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div>
-  <div><div class="sig-label">Zatwierdził (Kierownik)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div>
-</div></div>
-<script>window.onload=function(){window.print()}</script>
-</body></html>`
-    const win = window.open('','_blank')
-    win.document.write(html); win.document.close()
+<div class="header"><div><div class="company">InstantMix Pro</div><div class="title">Inwentura magazynowa składników</div><div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Stan na dzień: ${dateStr}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${dateStr} ${timeStr}<br>Wydrukował: ${profile?.full_name||'—'}</div></div>
+<table><thead><tr><th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th><th style="width:70px;text-align:right">Przyjęto (kg)</th><th style="width:60px;text-align:right">Korekty (kg)</th><th style="width:70px;text-align:right">Zużyto (kg)</th><th style="width:70px;text-align:right">Stan (kg)</th><th style="width:90px;text-align:right">Wartość (zł)</th><th style="width:70px;text-align:right">Minimum (kg)</th><th style="width:60px">Status</th><th style="width:100px">Uwagi</th></tr></thead>
+<tbody>${tableRows}<tr class="total"><td colspan="3" style="text-align:right">SUMA:</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.in_stock,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.corrections_total,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.used_total,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.current,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.value,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td><td colspan="3"></td></tr></tbody></table>
+<div class="sig"><div style="font-weight:bold;font-size:10px;border-bottom:1px solid #D3D1C7;padding-bottom:5px">Potwierdzenie inwentury</div><div class="sig-grid"><div><div class="sig-label">Przeprowadził inwenturę</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Brygadzista)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Kierownik)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div></div>
+<script>window.onload=function(){window.print()}</script></body></html>`
+    const win = window.open('','_blank'); win.document.write(html); win.document.close()
   }
 
   return (
@@ -395,7 +263,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
         <div className="stat-card"><div className="stat-label">Składników aktywnych</div><div className="stat-val">{stats.total}</div></div>
         <div className="stat-card"><div className="stat-label">Stan krytyczny / brak</div><div className="stat-val" style={{ color:'#A32D2D' }}>{stats.critical}</div></div>
         <div className="stat-card"><div className="stat-label">Stan niski</div><div className="stat-val" style={{ color:'#BA7517' }}>{stats.warning}</div></div>
-        <div className="stat-card"><div className="stat-label">Brak na stanie</div><div className="stat-val" style={{ color:'#A32D2D' }}>{stats.empty}</div></div>
+        <div className="stat-card"><div className="stat-label">Wartość magazynu</div><div className="stat-val" style={{ fontSize:16 }}>{totalValue > 0 ? totalValue.toLocaleString('pl-PL', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' zł' : '—'}</div></div>
       </div>
 
       {/* Bilans magazynowy */}
@@ -410,25 +278,12 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
           </div>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'auto auto auto auto 1fr', gap:10, alignItems:'end' }}>
-          <div>
-            <label>Bilans otwarcia na</label>
-            <input type="date" value={bilansDat1} onChange={e => { setBilansDat1(e.target.value); setBilansMode('custom') }} />
-          </div>
+          <div><label>Bilans otwarcia na</label><input type="date" value={bilansDat1} onChange={e => { setBilansDat1(e.target.value); setBilansMode('custom') }} /></div>
           <div style={{ paddingTop:20, color:'#888' }}>→</div>
-          <div>
-            <label>Bilans zamknięcia na</label>
-            <input type="date" value={bilansDat2} onChange={e => { setBilansDat2(e.target.value); setBilansMode('custom') }} />
-          </div>
-          <button className="btn btn-primary btn-sm" onClick={obliczBilans} style={{ alignSelf:'flex-end' }}>
-            Oblicz bilans
-          </button>
-          {showBilans && bilansData.length > 0 && (
-            <button className="btn btn-sm" onClick={printBilans} style={{ alignSelf:'flex-end' }}>
-              Drukuj bilans
-            </button>
-          )}
+          <div><label>Bilans zamknięcia na</label><input type="date" value={bilansDat2} onChange={e => { setBilansDat2(e.target.value); setBilansMode('custom') }} /></div>
+          <button className="btn btn-primary btn-sm" onClick={obliczBilans} style={{ alignSelf:'flex-end' }}>Oblicz bilans</button>
+          {showBilans && bilansData.length > 0 && <button className="btn btn-sm" onClick={printBilans} style={{ alignSelf:'flex-end' }}>Drukuj bilans</button>}
         </div>
-
         {showBilans && (
           <div style={{ marginTop:12 }}>
             {bilansLoading ? (
@@ -471,7 +326,6 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
         )}
       </div>
 
-      {/* Filtry tabeli */}
       <div className="flex" style={{ marginBottom:12, gap:8, flexWrap:'wrap' }}>
         <input className="search" placeholder="Szukaj składnika..." value={search} onChange={e => setSearch(e.target.value)} style={{ width:220 }} />
         {['wszystkie','alerty','krytyczne','ok'].map(f => (
@@ -482,14 +336,10 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
         ))}
       </div>
 
-      {isAdmin && (
-        <div className="info-box" style={{ marginBottom:10, fontSize:12 }}>
-          Jako Admin możesz edytować minimalne stany — kliknij wartość w kolumnie "Minimum (kg)". Kliknij "Szczegóły" przy składniku aby zobaczyć partie z terminami przydatności.
-        </div>
-      )}
+      {isAdmin && <div className="info-box" style={{ marginBottom:10, fontSize:12 }}>Jako Admin możesz edytować minimalne stany — kliknij wartość w kolumnie "Minimum (kg)". Wartość obliczana jest na podstawie ceny jednostkowej z partii przyjęcia.</div>}
 
       <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:860 }}>
+        <table style={{ minWidth:960 }}>
           <thead><tr>
             <th style={{ width:32 }}></th>
             <th>Kod</th><th>Nazwa składnika</th>
@@ -497,17 +347,18 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
             <th style={{ textAlign:'right' }}>Korekty (kg)</th>
             <th style={{ textAlign:'right' }}>Zużyto (kg)</th>
             <th style={{ textAlign:'right' }}>Stan aktualny (kg)</th>
+            <th style={{ textAlign:'right' }}>Wartość (zł)</th>
             <th style={{ textAlign:'right' }}>Minimum (kg)</th>
             <th>Status</th>
             <th style={{ textAlign:'center' }}>Partie</th>
             <th>Alergen</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={11} style={{ textAlign:'center', padding:32, color:'#888' }}><span className="spinner" /> Obliczam stany...</td></tr>}
-            {!loading && filtered.length===0 && <tr><td colSpan={11} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
+            {loading && <tr><td colSpan={12} style={{ textAlign:'center', padding:32, color:'#888' }}><span className="spinner" /> Obliczam stany...</td></tr>}
+            {!loading && filtered.length===0 && <tr><td colSpan={12} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
             {!loading && filtered.map(r => (
               <React.Fragment key={r.id}>
-                <tr key={r.id} style={alertRowStyle(r)}>
+                <tr style={alertRowStyle(r)}>
                   <td style={{ textAlign:'center' }}>
                     <button onClick={() => loadBatchDetails(r.id)}
                       style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'#5F5E5A', padding:'2px 4px' }}>
@@ -524,6 +375,9 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                   <td style={{ textAlign:'right' }}>
                     <div style={{ fontWeight:700, fontSize:14 }}>{r.current.toFixed(3)}</div>
                     {stockBar(r)}
+                  </td>
+                  <td style={{ textAlign:'right', color: r.value > 0 ? '#3C3489' : '#888', fontWeight: r.value > 0 ? 500 : 400 }}>
+                    {r.value > 0 ? r.value.toLocaleString('pl-PL', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' zł' : '—'}
                   </td>
                   <td style={{ textAlign:'right' }}>
                     {isAdmin ? (
@@ -552,21 +406,16 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                 </tr>
                 {expandedId===r.id && (
                   <tr key={`${r.id}-detail`}>
-                    <td colSpan={11} style={{ padding:0, background:'#F9F8F5' }}>
+                    <td colSpan={12} style={{ padding:0, background:'#F9F8F5' }}>
                       <div style={{ padding:'8px 16px 10px 40px' }}>
-                        <div style={{ fontSize:12, fontWeight:500, marginBottom:6, color:'#0F6E56' }}>
-                          Partie na stanie — {r.name}
-                        </div>
+                        <div style={{ fontSize:12, fontWeight:500, marginBottom:6, color:'#0F6E56' }}>Partie na stanie — {r.name}</div>
                         {!batchDetails[r.id] || batchDetails[r.id].length===0 ? (
                           <div className="muted" style={{ fontSize:12 }}>Brak dopuszczonych partii na stanie</div>
                         ) : (
                           <table style={{ width:'auto', minWidth:500 }}>
                             <thead><tr>
-                              <th>Nr partii dostawy</th>
-                              <th>Data przyjęcia</th>
-                              <th>Data ważności</th>
-                              <th style={{ textAlign:'right' }}>Stan (kg)</th>
-                              <th>Status</th>
+                              <th>Nr partii dostawy</th><th>Data przyjęcia</th><th>Data ważności</th>
+                              <th style={{ textAlign:'right' }}>Stan (kg)</th><th>Status</th>
                             </tr></thead>
                             <tbody>
                               {batchDetails[r.id].map(b => {
