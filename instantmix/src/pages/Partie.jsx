@@ -47,7 +47,13 @@ export default function Partie() {
 
   function effectiveQty(batch) {
     const corrs = corrections.filter(c => c.ingredient_batch_id === batch.id)
-    return batch.quantity_kg + corrs.reduce((s, c) => s + parseFloat(c.delta_kg), 0)
+    return parseFloat(batch.quantity_kg) + corrs.reduce((s, c) => s + parseFloat(c.delta_kg), 0)
+  }
+
+  function effectiveValue(batch) {
+    const qty = effectiveQty(batch)
+    const price = parseFloat(batch.unit_price_pln || 0)
+    return price > 0 ? qty * price : null
   }
 
   const filtered = batches.filter(b =>
@@ -55,6 +61,11 @@ export default function Partie() {
     (b.ingredients?.code || '').toLowerCase().includes(search.toLowerCase()) ||
     b.delivery_lot.toLowerCase().includes(search.toLowerCase())
   )
+
+  const totalValue = filtered.reduce((s, b) => {
+    const v = effectiveValue(b)
+    return v ? s + v : s
+  }, 0)
 
   const stats = {
     total: batches.length,
@@ -158,20 +169,24 @@ export default function Partie() {
         <div className="stat-card"><div className="stat-label">Partii na stanie</div><div className="stat-val">{stats.total}</div></div>
         <div className="stat-card"><div className="stat-label">Wygasa w 30 dni</div><div className="stat-val" style={{ color:'#BA7517' }}>{stats.expiringSoon}</div></div>
         <div className="stat-card"><div className="stat-label">Wstrzymane</div><div className="stat-val" style={{ color:'#A32D2D' }}>{stats.blocked}</div></div>
-        <div className="stat-card"><div className="stat-label">Łącznie (t)</div><div className="stat-val">{stats.totalTons}</div></div>
+        <div className="stat-card"><div className="stat-label">Wartość (filtr)</div><div className="stat-val" style={{ fontSize:15, color:'#3C3489' }}>{totalValue > 0 ? totalValue.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</div></div>
       </div>
 
       <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:1050 }}>
+        <table style={{ minWidth:1150 }}>
           <thead><tr>
             <th>Kod</th><th>Nazwa</th><th>Dostawca</th><th>Nr partii dostawy</th>
             <th>Data prod.</th><th>Ważny do</th><th>Data przyj.</th>
-            <th>Ilość (kg)</th><th>Cena/kg (PLN)</th><th>Faktura</th><th>Status</th><th>Akcja</th>
+            <th style={{textAlign:'right'}}>Ilość (kg)</th>
+            <th style={{textAlign:'right'}}>Cena/kg</th>
+            <th style={{textAlign:'right'}}>Wartość (zł)</th>
+            <th>Faktura</th><th>Status</th><th>Akcja</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={12} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={13} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(b => {
               const eff = effectiveQty(b)
+              const val = effectiveValue(b)
               const corrs = corrections.filter(c => c.ingredient_batch_id===b.id)
               const hasCorr = corrs.length > 0
               const isExpiring = b.expiry_date && (new Date(b.expiry_date)-new Date()) < 30*24*3600*1000 && new Date(b.expiry_date)>new Date()
@@ -186,9 +201,13 @@ export default function Partie() {
                     <td className="muted" style={{ color:isExpiring?'#BA7517':undefined }}>{b.expiry_date||'—'}</td>
                     <td className="muted">{b.received_date}</td>
                     <td style={{ fontWeight:500, textAlign:'right' }}>
-                      {hasCorr ? <><span style={{ textDecoration:'line-through', color:'#888', marginRight:4 }}>{b.quantity_kg}</span><b>{eff.toFixed(2)}</b></> : b.quantity_kg}
+                      {hasCorr ? <><span style={{ textDecoration:'line-through', color:'#888', marginRight:4 }}>{b.quantity_kg}</span><b>{eff.toFixed(3)}</b></> : b.quantity_kg}
                     </td>
-                    <td style={{ textAlign:'right', fontSize:12 }}>{b.unit_price_pln ? parseFloat(b.unit_price_pln).toFixed(4) : '—'}</td>
+                    <td style={{ textAlign:'right', fontSize:12, color:'#5F5E5A' }}>{b.unit_price_pln ? parseFloat(b.unit_price_pln).toFixed(4) : '—'}</td>
+                    <td style={{ textAlign:'right', fontWeight:500, color: val ? '#3C3489' : '#888' }}>
+                      {val !== null ? val.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}
+                      {hasCorr && val !== null && <div style={{ fontSize:10, color:'#888' }}>po kor.</div>}
+                    </td>
                     <td className="muted">{b.invoice_number||'—'}</td>
                     <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':b.status==='wstrzymana'?'b-err':'b-warn'}`}>{b.status}</span></td>
                     <td>
@@ -204,7 +223,7 @@ export default function Partie() {
                       <td colSpan={3} style={{ color:'#888' }}>{c.reason}</td>
                       <td className="muted">{c.event_date}</td>
                       <td><span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span></td>
-                      <td colSpan={3}></td>
+                      <td colSpan={4}></td>
                       <td colSpan={2}>
                         {isAdmin && (
                           <div className="flex" style={{ gap:4 }}>
@@ -243,7 +262,7 @@ export default function Partie() {
             <div><label>Nr faktury</label><input value={form.invoice_number} onChange={e => f('invoice_number',e.target.value)} placeholder="FV/2025/XXXX" /></div>
           </div>
           <div className="fr">
-            <div><label>Nr specyfikacji</label><input value={form.spec_number} onChange={e => f('spec_number',e.target.value)} placeholder="SPEC-2025-XXX" /></div>
+            <div><label>Nr specyfikacji</label><input value={form.spec_number} onChange={e => f('spec_number',e.target.value)} /></div>
             <div><label>Data zatwierdzenia specyfikacji</label><input type="date" value={form.spec_approved_at} onChange={e => f('spec_approved_at',e.target.value)} /></div>
           </div>
           <div className="fr3">
@@ -256,8 +275,9 @@ export default function Partie() {
             <div><label>Cena za kg (PLN)</label>
               <input type="number" step="0.0001" value={form.unit_price_pln} onChange={e => f('unit_price_pln',e.target.value)} placeholder="0.0000" />
             </div>
-            <div><label>Wartość faktury (PLN)</label>
-              <input type="number" step="0.01" value={form.unit_price_pln && form.quantity_kg ? (parseFloat(form.unit_price_pln||0)*parseFloat(form.quantity_kg||0)).toFixed(2) : ''} readOnly style={{ background:'#F1EFE8' }} placeholder="auto" />
+            <div><label>Wartość (PLN) — auto</label>
+              <input readOnly style={{ background:'#F1EFE8', fontWeight:500 }}
+                value={form.unit_price_pln && form.quantity_kg ? (parseFloat(form.unit_price_pln||0)*parseFloat(form.quantity_kg||0)).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'} />
             </div>
           </div>
           <div className="fr">
@@ -277,18 +297,18 @@ export default function Partie() {
         </div>
       </div>
 
-      {/* Modal edycja przyjęcia */}
+      {/* Modal edycja */}
       <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
         <div className="modal">
           <div className="modal-title">Edycja przyjęcia dostawy</div>
           <div className="info-box" style={{ marginBottom:10 }}>Edycja dostępna tylko dla Admina.</div>
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
-            <div><label>Dostawca</label><input value={editForm.supplier_name||''} onChange={e => ef('supplier_name',e.target.value)} placeholder="np. StarChem Sp. z o.o." /></div>
+            <div><label>Dostawca</label><input value={editForm.supplier_name||''} onChange={e => ef('supplier_name',e.target.value)} /></div>
             <div><label>Nr faktury</label><input value={editForm.invoice_number||''} onChange={e => ef('invoice_number',e.target.value)} /></div>
           </div>
           <div className="fr">
-            <div><label>Nr specyfikacji</label><input value={editForm.spec_number||''} onChange={e => ef('spec_number',e.target.value)} placeholder="SPEC-2025-XXX" /></div>
+            <div><label>Nr specyfikacji</label><input value={editForm.spec_number||''} onChange={e => ef('spec_number',e.target.value)} /></div>
             <div><label>Data zatwierdzenia specyfikacji</label><input type="date" value={editForm.spec_approved_at||''} onChange={e => ef('spec_approved_at',e.target.value)} /></div>
           </div>
           <div className="fr">
@@ -303,6 +323,10 @@ export default function Partie() {
           <div className="fr3">
             <div><label>Ilość (kg)</label><input type="number" step="0.001" value={editForm.quantity_kg||''} onChange={e => ef('quantity_kg',e.target.value)} /></div>
             <div><label>Cena za kg (PLN)</label><input type="number" step="0.0001" value={editForm.unit_price_pln||''} onChange={e => ef('unit_price_pln',e.target.value)} /></div>
+            <div><label>Wartość (PLN) — auto</label>
+              <input readOnly style={{ background:'#F1EFE8', fontWeight:500 }}
+                value={editForm.unit_price_pln && editForm.quantity_kg ? (parseFloat(editForm.unit_price_pln||0)*parseFloat(editForm.quantity_kg||0)).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'} />
+            </div>
           </div>
           <div><label>Status</label>
             <select value={editForm.status||'dopuszczona'} onChange={e => ef('status',e.target.value)}>
@@ -318,7 +342,7 @@ export default function Partie() {
         </div>
       </div>
 
-      {/* Modal nowa korekta */}
+      {/* Modal korekta */}
       <div className={`modal-overlay ${corrModal?'open':''}`} onClick={e => e.target===e.currentTarget && setCorrModal(false)}>
         <div className="modal">
           <div className="modal-title">Korekta stanu magazynowego</div>
@@ -326,7 +350,8 @@ export default function Partie() {
             <div style={{ background:'#F1EFE8', borderRadius:8, padding:10, marginBottom:12, fontSize:13 }}>
               <b>{selectedBatch.ingredients?.code}</b> — {selectedBatch.ingredients?.name} &nbsp;|&nbsp;
               Partia: <span className="lot">{selectedBatch.delivery_lot}</span> &nbsp;|&nbsp;
-              Stan: <b>{effectiveQty(selectedBatch).toFixed(2)} kg</b>
+              Stan: <b>{effectiveQty(selectedBatch).toFixed(3)} kg</b>
+              {effectiveValue(selectedBatch) !== null && <span> &nbsp;|&nbsp; Wartość: <b>{effectiveValue(selectedBatch).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</b></span>}
             </div>
           )}
           {error && <div className="err-box">{error}</div>}
@@ -375,7 +400,7 @@ export default function Partie() {
       <div className={`modal-overlay ${editCorrModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditCorrModal(false)}>
         <div className="modal" style={{ maxWidth:460 }}>
           <div className="modal-title">Edycja korekty</div>
-          <div className="warn-box" style={{ marginBottom:10 }}>Edycja korekt dostępna tylko dla Admina. Zmiana wartości korekty wpływa na stan magazynowy.</div>
+          <div className="warn-box" style={{ marginBottom:10 }}>Edycja korekt dostępna tylko dla Admina.</div>
           {error && <div className="err-box">{error}</div>}
           <div style={{ marginBottom:10 }}><label>Typ korekty</label>
             <select value={editCorrForm.correction_type||''} onChange={e => ecf('correction_type',e.target.value)}>
@@ -384,7 +409,7 @@ export default function Partie() {
           </div>
           <div className="fr">
             <div><label>Korekta ilości (kg)</label>
-              <input type="number" step="0.001" value={editCorrForm.delta_kg||''} onChange={e => ecf('delta_kg',e.target.value)} placeholder="np. -50 lub +20" />
+              <input type="number" step="0.001" value={editCorrForm.delta_kg||''} onChange={e => ecf('delta_kg',e.target.value)} />
             </div>
             <div><label>Data zdarzenia</label>
               <input type="date" value={editCorrForm.event_date||''} onChange={e => ecf('event_date',e.target.value)} />
