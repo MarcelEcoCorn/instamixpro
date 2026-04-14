@@ -13,6 +13,7 @@ export default function Receptury() {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [filterClient, setFilterClient] = useState('')
   const [expandedId, setExpandedId] = useState(null)
   const [modal, setModal] = useState(false)
   const [editMode, setEditMode] = useState(false)
@@ -40,11 +41,13 @@ export default function Receptury() {
     setLoading(false)
   }
 
-  const filtered = recipes.filter(r =>
-    r.name.toLowerCase().includes(search.toLowerCase()) ||
-    r.code.toLowerCase().includes(search.toLowerCase()) ||
-    (r.client||'').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = recipes.filter(r => {
+    const matchQ = r.name.toLowerCase().includes(search.toLowerCase()) ||
+      r.code.toLowerCase().includes(search.toLowerCase()) ||
+      (r.client||'').toLowerCase().includes(search.toLowerCase())
+    const matchClient = !filterClient || r.client_id === filterClient
+    return matchQ && matchClient
+  })
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
@@ -124,12 +127,49 @@ export default function Receptury() {
     setConfirmDelete(null); load()
   }
 
+  const [copiedId, setCopiedId] = useState(null)
+
+  function copyRecipeToClipboard(recipe) {
+    const items = (recipe.recipe_items||[]).sort((a,b) => a.sort_order - b.sort_order)
+    // Header row
+    const header = ['Kod składnika', 'Nazwa składnika', 'Udział %', 'Na 100 kg (kg)', 'Alergen'].join('\t')
+    // Data rows — liczby jako liczby (bez cudzysłowów), tekst jako tekst
+    const rows = items.map(it => [
+      it.ingredients?.code || '',
+      it.ingredients?.name || '',
+      parseFloat(it.percentage),           // liczba
+      parseFloat(it.percentage),           // liczba (na 100 kg = udział %)
+      it.ingredients?.has_allergen ? it.ingredients.allergen_type : ''
+    ].join('\t'))
+    // Info rows na górze
+    const info = [
+      `Receptura:\t${recipe.code} — ${recipe.name} (${recipe.version})`,
+      `Klient:\t${recipe.client || '—'}`,
+      `Linia:\t${recipe.production_line}`,
+      `Status:\t${recipe.status}`,
+      '',
+      header,
+      ...rows,
+      '',
+      `SUMA:\t\t${items.reduce((s,it)=>s+parseFloat(it.percentage),0).toFixed(3)}\t${items.reduce((s,it)=>s+parseFloat(it.percentage),0).toFixed(3)}`
+    ].join('\n')
+    navigator.clipboard.writeText(info).then(() => {
+      setCopiedId(recipe.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    })
+  }
+
   return (
     <div>
       <div className="page-header">
         <div><div className="page-title">Receptury</div><div className="page-sub">Dostęp: Admin, Technolog</div></div>
-        <div className="flex">
-          <input className="search" placeholder="Szukaj receptury lub klienta..." value={search} onChange={e => setSearch(e.target.value)} style={{ width:240 }} />
+        <div className="flex" style={{ gap:8, flexWrap:'wrap', alignItems:'center' }}>
+          <input className="search" placeholder="Szukaj receptury..." value={search} onChange={e => setSearch(e.target.value)} style={{ width:180 }} />
+          <select value={filterClient} onChange={e => setFilterClient(e.target.value)} style={{ fontSize:13 }}>
+            <option value="">— wszyscy klienci —</option>
+            {clients.map(c => <option key={c.id} value={c.id}>{c.number} — {c.name}</option>)}
+          </select>
+          {filterClient && <button className="btn btn-sm" onClick={() => setFilterClient('')}>✕</button>}
           {canEdit && <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nowa receptura</button>}
         </div>
       </div>
@@ -195,6 +235,16 @@ export default function Receptury() {
                           </div>
                         )}
                         {r.notes && <div className="muted" style={{ marginBottom:8, fontSize:12 }}>Uwagi: {r.notes}</div>}
+                        <div style={{ marginBottom:8 }}>
+                          <button
+                            className="btn btn-sm"
+                            style={{ background: copiedId===r.id ? '#E1F5EE' : undefined, color: copiedId===r.id ? '#085041' : undefined, fontSize:11 }}
+                            onClick={() => copyRecipeToClipboard(r)}
+                          >
+                            {copiedId===r.id ? '✓ Skopiowano!' : '📋 Kopiuj do Excela'}
+                          </button>
+                          <span className="muted" style={{ fontSize:11, marginLeft:8 }}>Wklej Ctrl+V w Excelu — liczby zostaną rozpoznane automatycznie</span>
+                        </div>
                         <table style={{ width:'auto', minWidth:500 }}>
                           <thead><tr>
                             <th>Kod skł.</th><th>Nazwa składnika</th>
