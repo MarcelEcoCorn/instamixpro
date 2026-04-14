@@ -131,17 +131,17 @@ export default function Receptury() {
 
   function copyRecipeToClipboard(recipe) {
     const items = (recipe.recipe_items||[]).sort((a,b) => a.sort_order - b.sort_order)
-    // Header row
+    // Użyj przecinka jako separatora dziesiętnego (polski Excel)
+    const num = v => String(parseFloat(v).toFixed(3)).replace('.', ',')
     const header = ['Kod składnika', 'Nazwa składnika', 'Udział %', 'Na 100 kg (kg)', 'Alergen'].join('\t')
-    // Data rows — liczby jako liczby (bez cudzysłowów), tekst jako tekst
     const rows = items.map(it => [
       it.ingredients?.code || '',
       it.ingredients?.name || '',
-      parseFloat(it.percentage),           // liczba
-      parseFloat(it.percentage),           // liczba (na 100 kg = udział %)
+      num(it.percentage),
+      num(it.percentage),
       it.ingredients?.has_allergen ? it.ingredients.allergen_type : ''
     ].join('\t'))
-    // Info rows na górze
+    const suma = num(items.reduce((s,it)=>s+parseFloat(it.percentage),0))
     const info = [
       `Receptura:\t${recipe.code} — ${recipe.name} (${recipe.version})`,
       `Klient:\t${recipe.client || '—'}`,
@@ -151,7 +151,7 @@ export default function Receptury() {
       header,
       ...rows,
       '',
-      `SUMA:\t\t${items.reduce((s,it)=>s+parseFloat(it.percentage),0).toFixed(3)}\t${items.reduce((s,it)=>s+parseFloat(it.percentage),0).toFixed(3)}`
+      `SUMA:\t\t${suma}\t${suma}`
     ].join('\n')
     navigator.clipboard.writeText(info).then(() => {
       setCopiedId(recipe.id)
