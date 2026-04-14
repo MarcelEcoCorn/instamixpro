@@ -439,8 +439,10 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                                       <span style={{ fontWeight:700, color: hasCorr ? '#A32D2D' : undefined }}>{parseFloat(b.current_kg).toFixed(3)}</span>
                                       {hasCorr && <span style={{ fontSize:10, color:'#A32D2D', marginLeft:4 }}>({parseFloat(b.corrections_kg)>0?'+':''}{parseFloat(b.corrections_kg).toFixed(3)})</span>}
                                     </td>
-                                    <td style={{ textAlign:'right', color: b.batch_value ? '#3C3489' : '#888', fontSize:12 }}>
-                                      {b.batch_value ? b.batch_value.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}
+                                    <td style={{ textAlign:'right', color: (parseFloat(b.unit_price_pln||0) > 0) ? '#3C3489' : '#888', fontSize:12 }}>
+                                      {parseFloat(b.unit_price_pln||0) > 0
+                                        ? (parseFloat(b.current_kg) * parseFloat(b.unit_price_pln)).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł'
+                                        : '—'}
                                     </td>
                                     <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':'b-err'}`}>{b.status}</span></td>
                                   </tr>
