@@ -342,6 +342,7 @@ export default function Produkcja() {
                           <thead><tr>
                             <th>Kod skł.</th><th>Nazwa składnika</th><th>Partia dostawy</th>
                             <th style={{textAlign:'right'}}>Użyto (kg)</th><th>FIFO</th>
+                            {isAdmin && <th style={{textAlign:'right'}}>Cena/kg</th>}
                             {isAdmin && <th style={{textAlign:'right'}}>Wartość (zł)</th>}
                             <th>Alergen</th>
                           </tr></thead>
@@ -356,6 +357,7 @@ export default function Produkcja() {
                                   <td><span className="lot">{it.ingredient_batches?.delivery_lot}</span>{it.fifo_order>1 && <span className="fifo-badge">FIFO {it.fifo_order}</span>}</td>
                                   <td style={{ textAlign:'right', fontWeight:500 }}>{it.quantity_used_kg}</td>
                                   <td><span className="badge b-info" style={{ fontSize:10 }}>#{it.fifo_order}</span></td>
+                                  {isAdmin && <td style={{ textAlign:'right', fontSize:12, color: price > 0 ? '#5F5E5A' : '#ccc' }}>{price > 0 ? price.toFixed(4)+' zł' : '—'}</td>}
                                   {isAdmin && <td style={{ textAlign:'right', fontSize:12, color: val ? '#3C3489' : '#888' }}>{val ? val.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>}
                                   <td>{it.ingredients?.has_allergen ? <span className="badge b-err">{it.ingredients.allergen_type}</span> : <span className="muted">—</span>}</td>
                                 </tr>
@@ -363,7 +365,7 @@ export default function Produkcja() {
                             })}
                             {isAdmin && hasValues && totalVal > 0 && (
                               <tr style={{ background:'#EEEDFE' }}>
-                                <td colSpan={isAdmin ? 5 : 4} style={{ textAlign:'right', fontWeight:600, color:'#3C3489' }}>SUMA wartości surowców:</td>
+                                <td colSpan={6} style={{ textAlign:'right', fontWeight:600, color:'#3C3489' }}>SUMA wartości surowców:</td>
                                 <td style={{ textAlign:'right', fontWeight:700, color:'#3C3489' }}>{totalVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>
                                 <td></td>
                               </tr>
