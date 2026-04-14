@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', notes:'', client:'', client_id:'' }
+const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', change_date:'', notes:'', client:'', client_id:'' }
 
 export default function Receptury() {
   const { profile } = useAuth()
@@ -52,7 +52,7 @@ export default function Receptury() {
 
   function openEdit(recipe) {
     setEditMode(true)
-    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', notes:recipe.notes||'', client:recipe.client||'', client_id:recipe.client_id||'' })
+    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', change_date:recipe.change_date||'', notes:recipe.notes||'', client:recipe.client||'', client_id:recipe.client_id||'' })
     const sorted = (recipe.recipe_items||[]).sort((a,b) => a.sort_order-b.sort_order)
     setItems(sorted.length > 0 ? sorted.map(it => ({ id:it.id, ingredient_id:it.ingredient_id, percentage:it.percentage })) : [{ ingredient_id:'', percentage:'' }])
     setError(''); setModal(true)
@@ -71,7 +71,7 @@ export default function Receptury() {
     const { data: rec, error: err } = await supabase.from('recipes').insert({
       code: dupForm.code, name: dupSource.name, version: dupSource.version,
       status: 'w_przegladzie', production_line: dupSource.production_line,
-      approved_at: null, notes: dupSource.notes,
+      approved_at: null, change_date: null, notes: dupSource.notes,
       client: dupForm.client || null, client_id: dupForm.client_id || null,
       approved_by: profile?.id
     }).select().single()
@@ -97,7 +97,7 @@ export default function Receptury() {
     const validItems = items.filter(it => it.ingredient_id && it.percentage)
     if (validItems.length === 0) { setError('Dodaj co najmniej jeden składnik'); return }
     setSaving(true); setError('')
-    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, notes:form.notes||null, client:form.client||null, client_id:form.client_id||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
+    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, change_date:form.change_date||null, notes:form.notes||null, client:form.client||null, client_id:form.client_id||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
     let recipeId = form.id
     if (editMode) {
       const { error: err } = await supabase.from('recipes').update(payload).eq('id', form.id)
@@ -138,11 +138,11 @@ export default function Receptury() {
         <table>
           <thead><tr>
             <th style={{ width:32 }}></th>
-            <th>Kod</th><th>Nazwa mieszanki</th><th>Wersja</th><th>Linia</th>
-            <th>Klient</th><th>Skł.</th><th>Status</th><th>Data zatw.</th><th></th>
+            <th>Kod</th><th>Klient</th><th>Nazwa mieszanki</th><th>Wersja</th><th>Linia</th>
+            <th>Skł.</th><th>Status</th><th>Data zatw.</th><th>Data zmiany</th><th></th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={11} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(r => (
               <React.Fragment key={r.id}>
                 <tr>
@@ -153,14 +153,14 @@ export default function Receptury() {
                     </button>
                   </td>
                   <td><span className="lot">{r.code}</span></td>
-                  <td style={{ fontWeight:500 }}>{r.name}</td>
-                  <td><span className="badge b-info">{r.version}</span></td>
-                  <td><span className={`badge ${r.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{r.production_line}</span></td>
                   <td style={{ fontSize:12 }}>
                     {r.client
                       ? <span style={{ background:'#E6F1FB', color:'#0C447C', padding:'1px 8px', borderRadius:999, fontSize:11, fontWeight:500 }}>{r.client}</span>
                       : <span className="muted">—</span>}
                   </td>
+                  <td style={{ fontWeight:500 }}>{r.name}</td>
+                  <td><span className="badge b-info">{r.version}</span></td>
+                  <td><span className={`badge ${r.production_line==='bezglutenowa'?'b-purple':'b-gray'}`}>{r.production_line}</span></td>
                   <td>{r.recipe_items?.length||0}</td>
                   <td>
                     {canEdit ? (
@@ -175,6 +175,7 @@ export default function Receptury() {
                     )}
                   </td>
                   <td className="muted">{r.approved_at||'—'}</td>
+                  <td className="muted">{r.change_date||'—'}</td>
                   <td>
                     <div className="flex" style={{ gap:4 }}>
                       {canEdit && <button className="btn btn-sm" onClick={() => openEdit(r)}>Edytuj</button>}
@@ -185,7 +186,7 @@ export default function Receptury() {
                 </tr>
                 {expandedId===r.id && (
                   <tr>
-                    <td colSpan={10} style={{ padding:0, background:'#F9F8F5' }}>
+                    <td colSpan={11} style={{ padding:0, background:'#F9F8F5' }}>
                       <div style={{ padding:'10px 16px 12px 40px' }}>
                         {r.client && (
                           <div style={{ marginBottom:8 }}>
@@ -225,7 +226,7 @@ export default function Receptury() {
                 )}
               </React.Fragment>
             ))}
-            {!loading && filtered.length===0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
+            {!loading && filtered.length===0 && <tr><td colSpan={11} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak wyników</td></tr>}
           </tbody>
         </table>
       </div>
@@ -256,18 +257,21 @@ export default function Receptury() {
           </div>
           <div className="fr">
             <div><label>Data zatwierdzenia</label><input type="date" value={form.approved_at} onChange={e => f('approved_at',e.target.value)} /></div>
-            <div><label>Uwagi</label><input value={form.notes} onChange={e => f('notes',e.target.value)} /></div>
+            <div><label>Data zmiany (nowej wersji)</label><input type="date" value={form.change_date} onChange={e => f('change_date',e.target.value)} /></div>
           </div>
-          <div style={{ marginBottom:10 }}>
-            <label>Klient</label>
-            <select value={form.client_id||''} onChange={e => {
-              const c = clients.find(x => x.id === e.target.value)
-              f('client_id', e.target.value)
-              f('client', c ? c.name : '')
-            }}>
-              <option value="">— brak / wybierz klienta —</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.number} — {c.name}</option>)}
-            </select>
+          <div className="fr">
+            <div><label>Uwagi</label><input value={form.notes} onChange={e => f('notes',e.target.value)} /></div>
+            <div style={{ marginBottom:0 }}>
+              <label>Klient</label>
+              <select value={form.client_id||''} onChange={e => {
+                const c = clients.find(x => x.id === e.target.value)
+                f('client_id', e.target.value)
+                f('client', c ? c.name : '')
+              }}>
+                <option value="">— brak / wybierz klienta —</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.number} — {c.name}</option>)}
+              </select>
+            </div>
           </div>
           <div className="divider"/>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
