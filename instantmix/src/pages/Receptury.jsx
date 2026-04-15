@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', change_date:'', notes:'', client:'', client_id:'' }
+const EMPTY_FORM = { code:'', name:'', version:'v1', status:'w_przegladzie', production_line:'zwykla', approved_at:'', change_date:'', notes:'', client:'', client_id:'', hydration:'' }
 
 export default function Receptury() {
   const { profile } = useAuth()
@@ -55,7 +55,7 @@ export default function Receptury() {
 
   function openEdit(recipe) {
     setEditMode(true)
-    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', change_date:recipe.change_date||'', notes:recipe.notes||'', client:recipe.client||'', client_id:recipe.client_id||'' })
+    setForm({ id:recipe.id, code:recipe.code, name:recipe.name, version:recipe.version, status:recipe.status, production_line:recipe.production_line, approved_at:recipe.approved_at||'', change_date:recipe.change_date||'', notes:recipe.notes||'', client:recipe.client||'', client_id:recipe.client_id||'', hydration:recipe.hydration||'' })
     const sorted = (recipe.recipe_items||[]).sort((a,b) => a.sort_order-b.sort_order)
     setItems(sorted.length > 0 ? sorted.map(it => ({ id:it.id, ingredient_id:it.ingredient_id, percentage:it.percentage })) : [{ ingredient_id:'', percentage:'' }])
     setError(''); setModal(true)
@@ -76,6 +76,7 @@ export default function Receptury() {
       status: 'w_przegladzie', production_line: dupSource.production_line,
       approved_at: null, change_date: null, notes: dupSource.notes,
       client: dupForm.client || null, client_id: dupForm.client_id || null,
+      hydration: dupSource.hydration || null,
       approved_by: profile?.id
     }).select().single()
     if (err) { setError(err.message); setSaving(false); return }
@@ -100,7 +101,7 @@ export default function Receptury() {
     const validItems = items.filter(it => it.ingredient_id && it.percentage)
     if (validItems.length === 0) { setError('Dodaj co najmniej jeden składnik'); return }
     setSaving(true); setError('')
-    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, change_date:form.change_date||null, notes:form.notes||null, client:form.client||null, client_id:form.client_id||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
+    const payload = { code:form.code, name:form.name, version:form.version, status:form.status, production_line:form.production_line, approved_at:form.approved_at||null, change_date:form.change_date||null, notes:form.notes||null, client:form.client||null, client_id:form.client_id||null, hydration:form.hydration||null, approved_by:profile?.id, updated_at:new Date().toISOString() }
     let recipeId = form.id
     if (editMode) {
       const { error: err } = await supabase.from('recipes').update(payload).eq('id', form.id)
@@ -268,6 +269,16 @@ export default function Receptury() {
                               <td style={{ fontWeight:500, textAlign:'right' }}>100.000 kg</td>
                               <td></td>
                             </tr>
+                            {r.hydration && (
+                              <tr>
+                                <td colSpan={5} style={{ padding:0 }}>
+                                  <div style={{ background:'#FFF8E1', border:'1px solid #FFD54F', borderRadius:6, margin:'6px 0 2px 0', padding:'7px 14px', display:'flex', alignItems:'center', gap:10 }}>
+                                    <span style={{ fontSize:13, fontWeight:700, color:'#E65100', letterSpacing:0.5 }}>UWODNIENIE</span>
+                                    <span style={{ fontSize:13, color:'#5D4037', fontWeight:500 }}>{r.hydration}</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -322,6 +333,10 @@ export default function Receptury() {
                 {clients.map(c => <option key={c.id} value={c.id}>{c.number} — {c.name}</option>)}
               </select>
             </div>
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <label>Uwodnienie (informacja technologiczna)</label>
+            <input value={form.hydration} onChange={e => f('hydration',e.target.value)} placeholder="np. uwodnienie 1-5,4" />
           </div>
           <div className="divider"/>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
