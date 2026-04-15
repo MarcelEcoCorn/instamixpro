@@ -32,6 +32,10 @@ export default function Produkcja() {
   const [allIngBatches, setAllIngBatches] = useState([])
   const [allIngredients, setAllIngredients] = useState([])
   const [savingItems, setSavingItems] = useState(false)
+  const [editLotModal, setEditLotModal] = useState(false)
+  const [editLotBatch, setEditLotBatch] = useState(null)
+  const [editLotValue, setEditLotValue] = useState('')
+  const [savingLot, setSavingLot] = useState(false)
 
   useEffect(() => { load() }, [])
 
@@ -197,6 +201,16 @@ export default function Produkcja() {
     if (detail?.id === editItemsBatch.id) showDetail(detail)
   }
 
+  async function saveLot() {
+    if (!editLotValue.trim()) return
+    setSavingLot(true)
+    await supabase.from('production_batches').update({ lot_number: editLotValue.trim(), updated_at: new Date().toISOString() }).eq('id', editLotBatch.id)
+    setSavingLot(false)
+    setEditLotModal(false)
+    if (detail?.id === editLotBatch.id) setDetail(p => ({...p, lot_number: editLotValue.trim()}))
+    load()
+  }
+
   function updateEditItem(idx, key, val) { setEditItemsList(p => p.map((it, i) => i === idx ? {...it, [key]: val} : it)) }
   function addEditItem() { setEditItemsList(p => [...p, { ingredient_id:'', ingredient_batch_id:'', quantity_used_kg:'', fifo_order: p.length+1 }]) }
   function removeEditItem(idx) { setEditItemsList(p => p.filter((_, i) => i !== idx)) }
@@ -314,6 +328,7 @@ export default function Produkcja() {
                     <div className="flex" style={{ gap:4 }}>
                       <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
                       {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
+                      {isAdmin && <button className="btn btn-sm" style={{ background:'#E1F5EE', color:'#085041', border:'0.5px solid #1D9E75', fontSize:11 }} onClick={() => { setEditLotBatch(b); setEditLotValue(b.lot_number); setEditLotModal(true) }} title="Zmień numer partii">Nr LOT</button>}
                       {isAdmin && <button className="btn btn-sm" style={{ background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80' }} onClick={() => openEditItems(b)} title="Edytuj partie składników">Skł.</button>}
                       {isAdmin && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }} onClick={() => recalcFIFO(b)} disabled={recalcId === b.id} title="Przelicz ponownie FIFO">{recalcId === b.id ? '...' : '↻ FIFO'}</button>}
                       {isAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)} title="Usuń partię">Usuń</button>}
@@ -435,6 +450,28 @@ export default function Produkcja() {
         </div>
       </div>
 
+      {/* Modal edycja numeru LOT */}
+      <div className={`modal-overlay ${editLotModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditLotModal(false)}>
+        <div className="modal" style={{ maxWidth:420 }}>
+          <div className="modal-title">Zmień numer partii produkcyjnej</div>
+          <div className="warn-box" style={{ marginBottom:10 }}>
+            Zmiana numeru LOT wpływa na kolejność FIFO. Używaj tylko do korekt numeracji.
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <label>Aktualny numer</label>
+            <div style={{ fontFamily:'monospace', fontWeight:600, fontSize:14, padding:'6px 0', color:'#0F6E56' }}>{editLotBatch?.lot_number}</div>
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <label>Nowy numer partii *</label>
+            <input value={editLotValue} onChange={e => setEditLotValue(e.target.value)} placeholder="np. PROD-2026-0001" style={{ fontFamily:'monospace' }} />
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setEditLotModal(false)}>Anuluj</button>
+            <button className="btn btn-primary" onClick={saveLot} disabled={savingLot || !editLotValue.trim()}>{savingLot?'Zapisywanie...':'Zapisz numer'}</button>
+          </div>
+        </div>
+      </div>
+
       <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
         <div className="modal">
           <div className="modal-title">Edycja partii produkcyjnej</div>
@@ -473,3 +510,4 @@ export default function Produkcja() {
     </div>
   )
 }
+Done
