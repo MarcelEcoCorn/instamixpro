@@ -135,10 +135,12 @@ export default function Receptury() {
     // Użyj przecinka jako separatora dziesiętnego (polski Excel)
     const num = v => String(parseFloat(v).toFixed(3)).replace('.', ',')
     const header = ['Kod składnika', 'Nazwa składnika', 'Udział %', 'Na 100 kg (kg)', 'Alergen'].join('\t')
+    // Udział % jako ułamek dziesiętny (0,6 = 60%) — Excel formatuje jako procenty
+    const pct = v => String((parseFloat(v) / 100).toFixed(5)).replace('.', ',')
     const rows = items.map(it => [
       it.ingredients?.code || '',
       it.ingredients?.name || '',
-      num(it.percentage),
+      pct(it.percentage),
       num(it.percentage),
       it.ingredients?.has_allergen ? it.ingredients.allergen_type : ''
     ].join('\t'))
