@@ -45,7 +45,6 @@ export default function Kalkulator() {
       .then(({ data }) => setRecipes(data || []))
   }, [])
 
-  // Receptury filtrowane wg wybranego klienta
   const filteredRecipes = selectedClient
     ? recipes.filter(r => r.client_id === selectedClient)
     : recipes
@@ -106,10 +105,30 @@ export default function Kalkulator() {
   const allergens = [...new Set(fifoResult.filter(r => r.ingredient?.has_allergen).map(r => r.ingredient.allergen_type))]
   const hasShortage = fifoResult.some(r => r.shortage > 0)
 
+  async function generateLotNumber() {
+    const year = new Date().getFullYear()
+    // Pobierz MAX numer z istniejących partii — nie count(), tylko max lot_number
+    const { data } = await supabase
+      .from('production_batches')
+      .select('lot_number')
+      .like('lot_number', `PROD-${year}-%`)
+      .order('lot_number', { ascending: false })
+      .limit(1)
+    let nextNum = 1
+    if (data && data.length > 0) {
+      const lastLot = data[0].lot_number // np. "PROD-2026-0042"
+      const parts = lastLot.split('-')
+      const lastNum = parseInt(parts[2] || '0', 10)
+      nextNum = lastNum + 1
+    }
+    return `PROD-${year}-${String(nextNum).padStart(4, '0')}`
+  }
+
   async function createProductionBatch() {
     setSaving(true)
+    const lotNumber = await generateLotNumber()
     const { data: pb, error } = await supabase.from('production_batches').insert({
-      lot_number: '',
+      lot_number: lotNumber,
       recipe_id: selectedRecipe.id,
       quantity_kg: mass,
       operator: prodForm.operator,
@@ -142,7 +161,7 @@ export default function Kalkulator() {
     setModal(false)
     setProdForm(p => ({ ...p, order_id: '' }))
     loadOrders()
-    alert(error ? 'Błąd: ' + error.message : `Partia ${pb.lot_number} utworzona!`)
+    alert(error ? 'Błąd: ' + error.message : `Partia ${lotNumber} utworzona!`)
   }
 
   function printChecklist() {
@@ -263,7 +282,6 @@ ${rows}
         )}
       </div>
 
-      {/* Zlecenia do zrealizowania */}
       <div className="card" style={{ marginBottom:10 }}>
         <div style={{ fontWeight:500, fontSize:13, marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span>Zlecenia do zrealizowania</span>
@@ -412,7 +430,6 @@ ${rows}
         )}
       </div>
 
-      {/* Modal zatwierdzenia */}
       <div className={`modal-overlay ${modal ? 'open' : ''}`} onClick={e => e.target === e.currentTarget && setModal(false)}>
         <div className="modal">
           <div className="modal-title">Zatwierdzenie partii produkcji</div>
