@@ -213,7 +213,7 @@ export default function Magazyn() {
     // Rozchód przed d1
     const { data: prodBefore } = await supabase
       .from('production_batch_items')
-      .select('ingredient_id, quantity_used_kg, production_batches(production_date)')
+      .select('ingredient_id, quantity_used_kg, ingredient_batches(unit_price_pln), production_batches(production_date)')
 
     // --- Buduj mapy ---
     const przychMap = {}, przychValMap = {}
@@ -261,12 +261,31 @@ export default function Magazyn() {
       const price = parseFloat(k.ingredient_batches?.unit_price_pln||0)
       if (price > 0) boValMap[ingId] = (boValMap[ingId]||0) + parseFloat(k.delta_kg) * price
     }
-    // BO: minus rozchód przed d1
+    // BO: minus rozchód przed d1 (ilość i wartość)
     for (const p of (prodBefore||[])) {
       if (!p.production_batches?.production_date) continue
       if (p.production_batches.production_date < d1) {
         boMap[p.ingredient_id] = (boMap[p.ingredient_id]||0) - parseFloat(p.quantity_used_kg)
+        const price = parseFloat(p.ingredient_batches?.unit_price_pln||0)
+        if (price > 0) boValMap[p.ingredient_id] = (boValMap[p.ingredient_id]||0) - parseFloat(p.quantity_used_kg) * price
       }
+    }
+
+    // Oblicz średnią ważoną cenę jednostkową dla każdego składnika (ze wszystkich partii z ceną)
+    const { data: allBatchPrices } = await supabase
+      .from('ingredient_batches')
+      .select('ingredient_id, quantity_kg, unit_price_pln')
+      .not('unit_price_pln', 'is', null)
+    const priceMap = {} // ingredient_id -> weighted avg price
+    const priceQtyMap = {}, priceValSumMap = {}
+    for (const b of (allBatchPrices||[])) {
+      if (parseFloat(b.unit_price_pln||0) > 0) {
+        priceQtyMap[b.ingredient_id] = (priceQtyMap[b.ingredient_id]||0) + parseFloat(b.quantity_kg)
+        priceValSumMap[b.ingredient_id] = (priceValSumMap[b.ingredient_id]||0) + parseFloat(b.quantity_kg) * parseFloat(b.unit_price_pln)
+      }
+    }
+    for (const id of Object.keys(priceQtyMap)) {
+      if (priceQtyMap[id] > 0) priceMap[id] = priceValSumMap[id] / priceQtyMap[id]
     }
 
     const bilans = (ingredients||[]).map(ing => {
@@ -279,7 +298,9 @@ export default function Magazyn() {
       const przychVal = parseFloat((przychValMap[ing.id]||0).toFixed(2))
       const korVal = parseFloat((korValMap[ing.id]||0).toFixed(2))
       const rozchVal = parseFloat((rozchValMap[ing.id]||0).toFixed(2))
-      const bzVal = parseFloat(Math.max(0, boVal + przychVal + korVal - rozchVal).toFixed(2))
+      // BZ wartość = BZ_kg × aktualna cena jednostkowa (dokładniejsze niż sumowanie kroków)
+      const avgPrice = priceMap[ing.id] || 0
+      const bzVal = avgPrice > 0 ? parseFloat((bz * avgPrice).toFixed(2)) : parseFloat(Math.max(0, boVal + przychVal + korVal - rozchVal).toFixed(2))
       return { id:ing.id, code:ing.code, name:ing.name, bo, przych, kor, rozch, bz, boVal, przychVal, korVal, rozchVal, bzVal }
     }).filter(r => r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0)
 
