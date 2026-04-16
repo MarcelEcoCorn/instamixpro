@@ -118,14 +118,15 @@ export default function Produkcja() {
       const { data: recipe } = await supabase.from('recipes').select('*, recipe_items(*, ingredients(id,code,name))').eq('id', pb.recipe_id).single()
       if (!recipe) throw new Error('Nie znaleziono receptury')
       setRecalcMsg('Pobieram stan magazynu...')
-      const { data: allBatches } = await supabase.from('production_batches').select('id, lot_number, production_date').order('lot_number', { ascending: true })
-      const thisBatch = allBatches?.find(b => b.id === batch.id)
-      const thisLot = thisBatch?.lot_number || ''
-      const priorityIds = (allBatches||[]).filter(b => b.id !== batch.id && b.lot_number < thisLot).map(b => b.id)
+      // Odejmuj zużycie ze WSZYSTKICH innych partii produkcyjnych (nie tylko wcześniejszych)
+      // Dzięki temu nie można przydzielić partii składnika która jest już w całości zużyta
+      const { data: otherUsed } = await supabase
+        .from('production_batch_items')
+        .select('ingredient_batch_id, quantity_used_kg')
+        .neq('production_batch_id', batch.id)
       const usedMap = {}
-      if (priorityIds.length > 0) {
-        const { data: otherUsed } = await supabase.from('production_batch_items').select('ingredient_batch_id, quantity_used_kg').in('production_batch_id', priorityIds)
-        for (const u of (otherUsed||[])) usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
+      for (const u of (otherUsed||[])) {
+        usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
       }
       const { data: stockAll } = await supabase.from('v_stock').select('*').eq('status', 'dopuszczona').order('received_date', { ascending: true })
       const availableMap = {}
