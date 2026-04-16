@@ -296,19 +296,22 @@ export default function Magazyn() {
     const valCol = hasValues
     const colCount = valCol ? 10 : 7
 
+    const fv = v => v > 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : v < 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
     const rowsHtml = bilansData.map((r,i) => `
       <tr>
         <td>${i+1}</td>
-        <td style="font-family:monospace">${r.code}</td>
+        <td style="font-family:monospace;font-size:8px">${r.code}</td>
         <td>${r.name}</td>
         <td style="text-align:right">${r.bo.toFixed(3)}</td>
+        <td style="text-align:right;color:#555;font-size:8px">${r.boVal > 0 ? r.boVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>
         <td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td>
+        <td style="text-align:right;color:#085041;font-size:8px">${r.przychVal > 0 ? r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>
         <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'}">${r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td>
+        <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'};font-size:8px">${r.kor!==0 ? (r.korVal !== 0 ? r.korVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—') : '—'}</td>
         <td style="text-align:right;color:#7B3F00">${r.rozch.toFixed(3)}</td>
+        <td style="text-align:right;color:#7B3F00;font-size:8px">${r.rozchVal > 0 ? r.rozchVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>
         <td style="text-align:right;font-weight:bold;color:#0C447C">${r.bz.toFixed(3)}</td>
-        ${valCol ? `
-        <td style="text-align:right;color:#3C3489;font-size:8px">${r.bzVal > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>
-        ` : ''}
+        <td style="text-align:right;font-weight:bold;color:#3C3489;font-size:8px">${r.bzVal > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>
         <td></td>
       </tr>`).join('')
 
@@ -316,11 +319,15 @@ export default function Magazyn() {
       <tr class="total">
         <td colspan="3" style="text-align:right">SUMA:</td>
         <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td>
-        <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
+        <td style="text-align:right;font-size:8px">${bilansData.reduce((s,r)=>s+r.boVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>
+        <td style="text-align:right;color:#085041">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
+        <td style="text-align:right;color:#085041;font-size:8px">${bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>
         <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
-        <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
+        <td style="text-align:right;font-size:8px">${bilansData.reduce((s,r)=>s+r.korVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>
+        <td style="text-align:right;color:#7B3F00">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
+        <td style="text-align:right;color:#7B3F00;font-size:8px">${bilansData.reduce((s,r)=>s+r.rozchVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>
         <td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
-        ${valCol ? `<td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>` : ''}
+        <td style="text-align:right;font-weight:bold;font-size:8px">${bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>
         <td></td>
       </tr>`
 
@@ -363,13 +370,17 @@ tr:nth-child(even) td{background:#FAFAF8}
     <th style="width:22px">Lp.</th>
     <th style="width:60px">Kod</th>
     <th>Nazwa składnika</th>
-    <th style="width:75px;text-align:right">BO (kg)</th>
-    <th style="width:75px;text-align:right">Przychód (kg)</th>
-    <th style="width:70px;text-align:right">Korekty (kg)</th>
-    <th style="width:75px;text-align:right">Rozchód (kg)</th>
-    <th style="width:75px;text-align:right">BZ (kg)</th>
-    ${valCol ? '<th style="width:90px;text-align:right">Wartość BZ (zł)</th>' : ''}
-    <th style="width:80px">Uwagi</th>
+    <th style="width:65px;text-align:right">BO (kg)</th>
+    <th style="width:70px;text-align:right">Wart. BO</th>
+    <th style="width:65px;text-align:right">Przychód (kg)</th>
+    <th style="width:70px;text-align:right">Wart. przyj.</th>
+    <th style="width:60px;text-align:right">Korekty (kg)</th>
+    <th style="width:70px;text-align:right">Wart. kor.</th>
+    <th style="width:65px;text-align:right">Rozchód (kg)</th>
+    <th style="width:70px;text-align:right">Wart. rozch.</th>
+    <th style="width:65px;text-align:right">BZ (kg)</th>
+    <th style="width:70px;text-align:right">Wart. BZ</th>
+    <th style="width:60px">Uwagi</th>
   </tr></thead>
   <tbody>${rowsHtml}${sumaHtml}</tbody>
 </table>
