@@ -118,15 +118,30 @@ export default function Produkcja() {
       const { data: recipe } = await supabase.from('recipes').select('*, recipe_items(*, ingredients(id,code,name))').eq('id', pb.recipe_id).single()
       if (!recipe) throw new Error('Nie znaleziono receptury')
       setRecalcMsg('Pobieram stan magazynu...')
-      // Odejmuj zużycie ze WSZYSTKICH innych partii produkcyjnych (nie tylko wcześniejszych)
-      // Dzięki temu nie można przydzielić partii składnika która jest już w całości zużyta
-      const { data: otherUsed } = await supabase
-        .from('production_batch_items')
-        .select('ingredient_batch_id, quantity_used_kg')
-        .neq('production_batch_id', batch.id)
+      // Odejmuj zużycie z partii produkcyjnych z datą <= daty tej partii
+      // Partia z wcześniejszą lub tą samą datą ma pierwszeństwo do składników (FIFO chronologiczny)
+      const thisProdDate = batch.production_date || ''
+      const { data: allProdBatches } = await supabase
+        .from('production_batches')
+        .select('id, production_date, lot_number')
+        .neq('id', batch.id)
+      // Weź partie z wcześniejszą datą produkcji, a przy tej samej dacie — z niższym numerem LOT
+      const priorityIds = (allProdBatches||[])
+        .filter(b => {
+          if (b.production_date < thisProdDate) return true
+          if (b.production_date === thisProdDate && b.lot_number < batch.lot_number) return true
+          return false
+        })
+        .map(b => b.id)
       const usedMap = {}
-      for (const u of (otherUsed||[])) {
-        usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
+      if (priorityIds.length > 0) {
+        const { data: otherUsed } = await supabase
+          .from('production_batch_items')
+          .select('ingredient_batch_id, quantity_used_kg')
+          .in('production_batch_id', priorityIds)
+        for (const u of (otherUsed||[])) {
+          usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
+        }
       }
       const { data: stockAll } = await supabase.from('v_stock').select('*').eq('status', 'dopuszczona').order('received_date', { ascending: true })
       const availableMap = {}
