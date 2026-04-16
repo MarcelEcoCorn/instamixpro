@@ -43,11 +43,8 @@ export default function Magazyn() {
       if (s.status==='dopuszczona') {
         const currentKg = parseFloat(s.current_kg||0)
         stockMap[s.ingredient_id].total += currentKg
-        // Wartość = current_kg * unit_price jeśli dostępna
         const price = parseFloat(s.unit_price_pln||0)
-        if (price > 0) {
-          stockMap[s.ingredient_id].value += currentKg * price
-        }
+        if (price > 0) stockMap[s.ingredient_id].value += currentKg * price
         stockMap[s.ingredient_id].batches.push({...s, batch_value: price > 0 ? currentKg * price : null})
       }
     }
@@ -64,7 +61,6 @@ export default function Magazyn() {
       const minimum = parseFloat(ing.minimum_stock_kg||0)
       const batchCount = stockMap[ing.id]?.batches?.length||0
 
-      // Wartość stanu aktualnego: FIFO — odejmuj zużycie od najstarszych partii
       let remaining_used = usedTotal
       let currentValue = 0
       const batches = (stockMap[ing.id]?.batches||[]).slice().sort((a,b) => new Date(a.received_date) - new Date(b.received_date))
@@ -180,57 +176,229 @@ export default function Magazyn() {
   async function obliczBilans() {
     setBilansLoading(true); setShowBilans(true)
     const d1 = bilansDat1, d2 = bilansDat2
-    const { data: ingredients } = await supabase.from('ingredients').select('id,code,name').eq('status','aktywny').order('code')
-    const { data: przyj } = await supabase.from('ingredient_batches').select('ingredient_id, quantity_kg, received_date').gte('received_date', d1).lte('received_date', d2)
-    const { data: prod } = await supabase.from('production_batch_items').select('ingredient_id, quantity_used_kg, production_batches(production_date)').gte('production_batches.production_date', d1).lte('production_batches.production_date', d2)
-    const { data: stockBefore } = await supabase.from('ingredient_batches').select('ingredient_id, quantity_kg').lt('received_date', d1)
-    const { data: prodBefore } = await supabase.from('production_batch_items').select('ingredient_id, quantity_used_kg, production_batches(production_date)')
-    const przychMap = {}, rozchodMap = {}, openMap = {}
-    for (const p of (przyj||[])) przychMap[p.ingredient_id] = (przychMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
+
+    const { data: ingredients } = await supabase
+      .from('ingredients').select('id,code,name').eq('status','aktywny').order('code')
+
+    // Przychód w okresie (przyjęcia)
+    const { data: przyj } = await supabase
+      .from('ingredient_batches')
+      .select('ingredient_id, quantity_kg, unit_price_pln, received_date')
+      .gte('received_date', d1).lte('received_date', d2)
+
+    // Korekty w okresie
+    const { data: korektyw } = await supabase
+      .from('stock_corrections')
+      .select('ingredient_batch_id, delta_kg, event_date, ingredient_batches(ingredient_id, unit_price_pln)')
+      .gte('event_date', d1).lte('event_date', d2)
+
+    // Rozchód w okresie (produkcja)
+    const { data: prod } = await supabase
+      .from('production_batch_items')
+      .select('ingredient_id, quantity_used_kg, ingredient_batches(unit_price_pln), production_batches(production_date)')
+
+    // BO: stan przed d1
+    // Przyjęcia przed d1
+    const { data: przyjBefore } = await supabase
+      .from('ingredient_batches')
+      .select('ingredient_id, quantity_kg, unit_price_pln, received_date')
+      .lt('received_date', d1)
+
+    // Korekty przed d1
+    const { data: korBefore } = await supabase
+      .from('stock_corrections')
+      .select('ingredient_batch_id, delta_kg, event_date, ingredient_batches(ingredient_id, unit_price_pln)')
+      .lt('event_date', d1)
+
+    // Rozchód przed d1
+    const { data: prodBefore } = await supabase
+      .from('production_batch_items')
+      .select('ingredient_id, quantity_used_kg, production_batches(production_date)')
+
+    // --- Buduj mapy ---
+    const przychMap = {}, przychValMap = {}
+    const korMap = {}, korValMap = {}
+    const rozchMap = {}, rozchValMap = {}
+    const boMap = {}, boValMap = {}
+
+    // Przychód w okresie
+    for (const p of (przyj||[])) {
+      przychMap[p.ingredient_id] = (przychMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
+      const val = parseFloat(p.unit_price_pln||0) * parseFloat(p.quantity_kg)
+      if (val > 0) przychValMap[p.ingredient_id] = (przychValMap[p.ingredient_id]||0) + val
+    }
+
+    // Korekty w okresie
+    for (const k of (korektyw||[])) {
+      const ingId = k.ingredient_batches?.ingredient_id
+      if (!ingId) continue
+      korMap[ingId] = (korMap[ingId]||0) + parseFloat(k.delta_kg)
+      const price = parseFloat(k.ingredient_batches?.unit_price_pln||0)
+      if (price > 0) korValMap[ingId] = (korValMap[ingId]||0) + parseFloat(k.delta_kg) * price
+    }
+
+    // Rozchód w okresie
     for (const p of (prod||[])) {
-      if (p.production_batches?.production_date >= d1 && p.production_batches?.production_date <= d2)
-        rozchodMap[p.ingredient_id] = (rozchodMap[p.ingredient_id]||0) + parseFloat(p.quantity_used_kg)
+      if (!p.production_batches?.production_date) continue
+      if (p.production_batches.production_date >= d1 && p.production_batches.production_date <= d2) {
+        rozchMap[p.ingredient_id] = (rozchMap[p.ingredient_id]||0) + parseFloat(p.quantity_used_kg)
+        const price = parseFloat(p.ingredient_batches?.unit_price_pln||0)
+        if (price > 0) rozchValMap[p.ingredient_id] = (rozchValMap[p.ingredient_id]||0) + parseFloat(p.quantity_used_kg) * price
+      }
     }
-    for (const p of (stockBefore||[])) openMap[p.ingredient_id] = (openMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
+
+    // BO: przyjęcia przed d1
+    for (const p of (przyjBefore||[])) {
+      boMap[p.ingredient_id] = (boMap[p.ingredient_id]||0) + parseFloat(p.quantity_kg)
+      const val = parseFloat(p.unit_price_pln||0) * parseFloat(p.quantity_kg)
+      if (val > 0) boValMap[p.ingredient_id] = (boValMap[p.ingredient_id]||0) + val
+    }
+    // BO: minus korekty przed d1
+    for (const k of (korBefore||[])) {
+      const ingId = k.ingredient_batches?.ingredient_id
+      if (!ingId) continue
+      boMap[ingId] = (boMap[ingId]||0) + parseFloat(k.delta_kg)
+      const price = parseFloat(k.ingredient_batches?.unit_price_pln||0)
+      if (price > 0) boValMap[ingId] = (boValMap[ingId]||0) + parseFloat(k.delta_kg) * price
+    }
+    // BO: minus rozchód przed d1
     for (const p of (prodBefore||[])) {
-      if (p.production_batches?.production_date < d1)
-        openMap[p.ingredient_id] = (openMap[p.ingredient_id]||0) - parseFloat(p.quantity_used_kg)
+      if (!p.production_batches?.production_date) continue
+      if (p.production_batches.production_date < d1) {
+        boMap[p.ingredient_id] = (boMap[p.ingredient_id]||0) - parseFloat(p.quantity_used_kg)
+      }
     }
+
     const bilans = (ingredients||[]).map(ing => {
-      const open = Math.max(0, parseFloat((openMap[ing.id]||0).toFixed(3)))
+      const bo = parseFloat(Math.max(0, boMap[ing.id]||0).toFixed(3))
       const przych = parseFloat((przychMap[ing.id]||0).toFixed(3))
-      const rozch = parseFloat((rozchodMap[ing.id]||0).toFixed(3))
-      const close = parseFloat(Math.max(0, open+przych-rozch).toFixed(3))
-      return { id:ing.id, code:ing.code, name:ing.name, open, przych, rozch, close }
-    }).filter(r => r.open>0||r.przych>0||r.rozch>0||r.close>0)
+      const kor = parseFloat((korMap[ing.id]||0).toFixed(3))
+      const rozch = parseFloat((rozchMap[ing.id]||0).toFixed(3))
+      const bz = parseFloat(Math.max(0, bo + przych + kor - rozch).toFixed(3))
+      const boVal = parseFloat((boValMap[ing.id]||0).toFixed(2))
+      const przychVal = parseFloat((przychValMap[ing.id]||0).toFixed(2))
+      const korVal = parseFloat((korValMap[ing.id]||0).toFixed(2))
+      const rozchVal = parseFloat((rozchValMap[ing.id]||0).toFixed(2))
+      const bzVal = parseFloat(Math.max(0, boVal + przychVal + korVal - rozchVal).toFixed(2))
+      return { id:ing.id, code:ing.code, name:ing.name, bo, przych, kor, rozch, bz, boVal, przychVal, korVal, rozchVal, bzVal }
+    }).filter(r => r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0)
+
     setBilansData(bilans); setBilansLoading(false)
   }
+
+  const fmt = v => v.toLocaleString('pl-PL',{minimumFractionDigits:3,maximumFractionDigits:3})
+  const fmtVal = v => v > 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : v < 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
+  const hasValues = bilansData.some(r => r.boVal > 0 || r.przychVal > 0 || r.bzVal > 0)
 
   function printBilans() {
     const d1str = new Date(bilansDat1).toLocaleDateString('pl-PL')
     const d2str = new Date(bilansDat2).toLocaleDateString('pl-PL')
-    const rowsHtml = bilansData.map((r,i) => `<tr><td>${i+1}</td><td>${r.code}</td><td>${r.name}</td><td style="text-align:right">${r.open.toFixed(3)}</td><td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td><td style="text-align:right;color:#633806">${r.rozch.toFixed(3)}</td><td style="text-align:right;font-weight:bold">${r.close.toFixed(3)}</td><td></td></tr>`).join('')
+    const valCol = hasValues
+    const colCount = valCol ? 10 : 7
+
+    const rowsHtml = bilansData.map((r,i) => `
+      <tr>
+        <td>${i+1}</td>
+        <td style="font-family:monospace">${r.code}</td>
+        <td>${r.name}</td>
+        <td style="text-align:right">${r.bo.toFixed(3)}</td>
+        <td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td>
+        <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'}">${r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td>
+        <td style="text-align:right;color:#7B3F00">${r.rozch.toFixed(3)}</td>
+        <td style="text-align:right;font-weight:bold;color:#0C447C">${r.bz.toFixed(3)}</td>
+        ${valCol ? `
+        <td style="text-align:right;color:#3C3489;font-size:8px">${r.bzVal > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</td>
+        ` : ''}
+        <td></td>
+      </tr>`).join('')
+
+    const sumaHtml = `
+      <tr class="total">
+        <td colspan="3" style="text-align:right">SUMA:</td>
+        <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td>
+        <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
+        <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
+        <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
+        <td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
+        ${valCol ? `<td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td>` : ''}
+        <td></td>
+      </tr>`
+
     const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Bilans magazynowy</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:10px;padding:14px}
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:10px;padding:14px}
 .header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}
-.company{font-size:15px;font-weight:bold;color:#0F6E56}.title{font-size:12px;font-weight:bold;margin-top:3px}
+.company{font-size:15px;font-weight:bold;color:#0F6E56}
+.title{font-size:12px;font-weight:bold;margin-top:3px}
 .period{font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px}
 table{width:100%;border-collapse:collapse;margin-bottom:10px}
 th{background:#0F6E56;color:#fff;padding:5px;border:1px solid #085041;font-size:8px;text-align:left}
-td{padding:4px 5px;border:1px solid #D3D1C7;font-size:9px}tr:nth-child(even) td{background:#FAFAF8}
+td{padding:4px 5px;border:1px solid #D3D1C7;font-size:9px}
+tr:nth-child(even) td{background:#FAFAF8}
 .total td{background:#E1F5EE!important;font-weight:bold}
-.sig{margin-top:14px;border:1px solid #D3D1C7;border-radius:4px;padding:10px}
-.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:10px}
-.sig-line{border-bottom:1px solid #333;margin-bottom:3px;margin-top:20px}
-.sig-label{font-size:8px;color:#888;text-transform:uppercase}
+.sig{margin-top:16px;border:1px solid #D3D1C7;border-radius:4px;padding:12px}
+.sig-title{font-weight:bold;font-size:10px;border-bottom:1px solid #D3D1C7;padding-bottom:6px;margin-bottom:12px}
+.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px}
+.sig-box{}
+.sig-label{font-size:9px;font-weight:bold;color:#333;text-transform:uppercase;letter-spacing:0.3px;margin-bottom:20px}
+.sig-line{border-bottom:1.5px solid #333;margin-bottom:4px}
+.sig-sub{font-size:8px;color:#888}
 .footer{margin-top:8px;font-size:8px;color:#888;text-align:center;border-top:1px solid #D3D1C7;padding-top:5px}
-@media print{@page{margin:8mm;size:A4}}</style></head><body>
-<div class="header"><div><div class="company">InstantMix Pro</div><div class="title">Bilans magazynowy składników</div><div class="period">Okres: ${d1str} — ${d2str}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} ${new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}<br>Wydrukował: ${profile?.full_name||'—'}</div></div>
-<table><thead><tr><th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th><th style="width:80px;text-align:right">Bilans otwarcia (kg)</th><th style="width:80px;text-align:right">Przychód (kg)</th><th style="width:80px;text-align:right">Rozchód (kg)</th><th style="width:80px;text-align:right">Bilans zamknięcia (kg)</th><th style="width:100px">Uwagi</th></tr></thead>
-<tbody>${rowsHtml}<tr class="total"><td colspan="3" style="text-align:right">SUMA:</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.open,0).toFixed(3)}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.close,0).toFixed(3)}</td><td></td></tr></tbody></table>
-<div class="sig"><div style="font-weight:bold;font-size:10px;border-bottom:1px solid #D3D1C7;padding-bottom:5px">Potwierdzenie bilansu</div><div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Brygadzista)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Kierownik)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div></div>
+@media print{@page{margin:8mm;size:A4 landscape}}
+</style></head><body>
+<div class="header">
+  <div>
+    <div class="company">InstantMix Pro</div>
+    <div class="title">Bilans magazynowy składników</div>
+    <div class="period">Okres: ${d1str} — ${d2str}</div>
+  </div>
+  <div style="text-align:right;font-size:9px;color:#555">
+    Wygenerowano: ${new Date().toLocaleDateString('pl-PL')} ${new Date().toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})}<br>
+    Wydrukował: ${profile?.full_name||'—'}
+  </div>
+</div>
+<table>
+  <thead><tr>
+    <th style="width:22px">Lp.</th>
+    <th style="width:60px">Kod</th>
+    <th>Nazwa składnika</th>
+    <th style="width:75px;text-align:right">BO (kg)</th>
+    <th style="width:75px;text-align:right">Przychód (kg)</th>
+    <th style="width:70px;text-align:right">Korekty (kg)</th>
+    <th style="width:75px;text-align:right">Rozchód (kg)</th>
+    <th style="width:75px;text-align:right">BZ (kg)</th>
+    ${valCol ? '<th style="width:90px;text-align:right">Wartość BZ (zł)</th>' : ''}
+    <th style="width:80px">Uwagi</th>
+  </tr></thead>
+  <tbody>${rowsHtml}${sumaHtml}</tbody>
+</table>
+<div class="sig">
+  <div class="sig-title">Potwierdzenie bilansu magazynowego</div>
+  <div class="sig-grid">
+    <div class="sig-box">
+      <div class="sig-label">Sporządził</div>
+      <div class="sig-line"></div>
+      <div class="sig-sub">Imię, nazwisko i podpis</div>
+      <div style="margin-top:8px;font-size:8px;color:#888">Data: _______________</div>
+    </div>
+    <div class="sig-box">
+      <div class="sig-label">Weryfikował</div>
+      <div class="sig-line"></div>
+      <div class="sig-sub">Imię, nazwisko i podpis</div>
+      <div style="margin-top:8px;font-size:8px;color:#888">Data: _______________</div>
+    </div>
+    <div class="sig-box">
+      <div class="sig-label">Zatwierdził</div>
+      <div class="sig-line"></div>
+      <div class="sig-sub">Imię, nazwisko i podpis</div>
+      <div style="margin-top:8px;font-size:8px;color:#888">Data: _______________</div>
+    </div>
+  </div>
+</div>
 <div class="footer">InstantMix Pro | Bilans magazynowy | ${d1str} — ${d2str} | ${profile?.full_name||'—'}</div>
-<script>window.onload=function(){window.print()}</script></body></html>`
+<script>window.onload=function(){window.print()}</script>
+</body></html>`
     const win = window.open('','_blank'); win.document.write(html); win.document.close()
   }
 
@@ -297,6 +465,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
           <button className="btn btn-primary btn-sm" onClick={obliczBilans} style={{ alignSelf:'flex-end' }}>Oblicz bilans</button>
           {showBilans && bilansData.length > 0 && <button className="btn btn-sm" onClick={printBilans} style={{ alignSelf:'flex-end' }}>Drukuj bilans</button>}
         </div>
+
         {showBilans && (
           <div style={{ marginTop:12 }}>
             {bilansLoading ? (
@@ -305,31 +474,54 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
               <div className="muted" style={{ padding:12 }}>Brak ruchów magazynowych w wybranym okresie.</div>
             ) : (
               <div style={{ overflowX:'auto' }}>
-                <table style={{ minWidth:700 }}>
+                <table style={{ minWidth:900 }}>
                   <thead><tr>
-                    <th>Kod</th><th>Nazwa składnika</th>
-                    <th style={{ textAlign:'right', background:'#E6F1FB', color:'#0C447C' }}>Bilans otwarcia (kg)</th>
+                    <th>Kod</th>
+                    <th>Nazwa składnika</th>
+                    <th style={{ textAlign:'right', background:'#E6F1FB', color:'#0C447C' }}>BO (kg)</th>
+                    <th style={{ textAlign:'right', background:'#E6F1FB', color:'#0C447C', fontSize:10 }}>Wart. BO</th>
                     <th style={{ textAlign:'right', background:'#E1F5EE', color:'#085041' }}>Przychód (kg)</th>
-                    <th style={{ textAlign:'right', background:'#FAEEDA', color:'#633806' }}>Rozchód (kg)</th>
-                    <th style={{ textAlign:'right', background:'#EEEDFE', color:'#3C3489' }}>Bilans zamknięcia (kg)</th>
+                    <th style={{ textAlign:'right', background:'#E1F5EE', color:'#085041', fontSize:10 }}>Wart. przyj.</th>
+                    <th style={{ textAlign:'right', background:'#FFF8E1', color:'#E65100' }}>Korekty (kg)</th>
+                    <th style={{ textAlign:'right', background:'#FFF8E1', color:'#E65100', fontSize:10 }}>Wart. kor.</th>
+                    <th style={{ textAlign:'right', background:'#FAEEDA', color:'#7B3F00' }}>Rozchód (kg)</th>
+                    <th style={{ textAlign:'right', background:'#FAEEDA', color:'#7B3F00', fontSize:10 }}>Wart. rozch.</th>
+                    <th style={{ textAlign:'right', background:'#EEEDFE', color:'#3C3489' }}>BZ (kg)</th>
+                    <th style={{ textAlign:'right', background:'#EEEDFE', color:'#3C3489', fontSize:10 }}>Wart. BZ</th>
                   </tr></thead>
                   <tbody>
                     {bilansData.map(r => (
                       <tr key={r.id}>
                         <td><span className="lot">{r.code}</span></td>
                         <td style={{ fontWeight:500 }}>{r.name}</td>
-                        <td style={{ textAlign:'right', color:'#0C447C' }}>{r.open.toFixed(3)}</td>
-                        <td style={{ textAlign:'right', color:'#085041', fontWeight:500 }}>{r.przych.toFixed(3)}</td>
-                        <td style={{ textAlign:'right', color:'#633806', fontWeight:500 }}>{r.rozch.toFixed(3)}</td>
-                        <td style={{ textAlign:'right', color:'#3C3489', fontWeight:700 }}>{r.close.toFixed(3)}</td>
+                        <td style={{ textAlign:'right', color:'#0C447C' }}>{fmt(r.bo)}</td>
+                        <td style={{ textAlign:'right', color:'#0C447C', fontSize:11 }}>{fmtVal(r.boVal)}</td>
+                        <td style={{ textAlign:'right', color:'#085041', fontWeight:500 }}>{fmt(r.przych)}</td>
+                        <td style={{ textAlign:'right', color:'#085041', fontSize:11 }}>{fmtVal(r.przychVal)}</td>
+                        <td style={{ textAlign:'right', color: r.kor < 0 ? '#A32D2D' : r.kor > 0 ? '#085041' : '#888', fontWeight:500 }}>
+                          {r.kor !== 0 ? (r.kor > 0 ? '+' : '') + fmt(r.kor) : '—'}
+                        </td>
+                        <td style={{ textAlign:'right', color: r.korVal < 0 ? '#A32D2D' : '#E65100', fontSize:11 }}>
+                          {r.kor !== 0 ? fmtVal(r.korVal) : '—'}
+                        </td>
+                        <td style={{ textAlign:'right', color:'#7B3F00', fontWeight:500 }}>{fmt(r.rozch)}</td>
+                        <td style={{ textAlign:'right', color:'#7B3F00', fontSize:11 }}>{fmtVal(r.rozchVal)}</td>
+                        <td style={{ textAlign:'right', color:'#3C3489', fontWeight:700 }}>{fmt(r.bz)}</td>
+                        <td style={{ textAlign:'right', color:'#3C3489', fontWeight:600, fontSize:11 }}>{fmtVal(r.bzVal)}</td>
                       </tr>
                     ))}
                     <tr style={{ background:'#F1EFE8' }}>
                       <td colSpan={2} style={{ fontWeight:500, textAlign:'right' }}>SUMA</td>
-                      <td style={{ textAlign:'right', fontWeight:700 }}>{bilansData.reduce((s,r)=>s+r.open,0).toFixed(3)}</td>
-                      <td style={{ textAlign:'right', fontWeight:700, color:'#085041' }}>{bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
-                      <td style={{ textAlign:'right', fontWeight:700, color:'#633806' }}>{bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
-                      <td style={{ textAlign:'right', fontWeight:700, color:'#3C3489' }}>{bilansData.reduce((s,r)=>s+r.close,0).toFixed(3)}</td>
+                      <td style={{ textAlign:'right', fontWeight:700 }}>{fmt(bilansData.reduce((s,r)=>s+r.bo,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, fontSize:11 }}>{fmtVal(bilansData.reduce((s,r)=>s+r.boVal,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#085041' }}>{fmt(bilansData.reduce((s,r)=>s+r.przych,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#085041', fontSize:11 }}>{fmtVal(bilansData.reduce((s,r)=>s+r.przychVal,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#E65100' }}>{fmt(bilansData.reduce((s,r)=>s+r.kor,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#E65100', fontSize:11 }}>{fmtVal(bilansData.reduce((s,r)=>s+r.korVal,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#7B3F00' }}>{fmt(bilansData.reduce((s,r)=>s+r.rozch,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#7B3F00', fontSize:11 }}>{fmtVal(bilansData.reduce((s,r)=>s+r.rozchVal,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#3C3489' }}>{fmt(bilansData.reduce((s,r)=>s+r.bz,0))}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#3C3489', fontSize:11 }}>{fmtVal(bilansData.reduce((s,r)=>s+r.bzVal,0))}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -349,7 +541,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
         ))}
       </div>
 
-      {isAdmin && <div className="info-box" style={{ marginBottom:10, fontSize:12 }}>Jako Admin możesz edytować minimalne stany — kliknij wartość w kolumnie "Minimum (kg)". Wartość obliczana jest na podstawie ceny jednostkowej z partii przyjęcia.</div>}
+      {isAdmin && <div className="info-box" style={{ marginBottom:10, fontSize:12 }}>Jako Admin możesz edytować minimalne stany — kliknij wartość w kolumnie "Minimum (kg)".</div>}
 
       <div className="card-0" style={{ overflowX:'auto' }}>
         <table style={{ minWidth:960 }}>
