@@ -66,6 +66,7 @@ export default function Kalkulator() {
       .select('*')
       .eq('status', 'dopuszczona')
       .order('received_date', { ascending: true })
+      .order('expiry_date', { ascending: true, nullsFirst: false })
 
     const availableMap = {}
     for (const s of (stockAll||[])) {
