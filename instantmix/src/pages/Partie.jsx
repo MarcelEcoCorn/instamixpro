@@ -29,6 +29,7 @@ export default function Partie() {
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
 
   useEffect(() => { load() }, [])
 
@@ -153,6 +154,17 @@ export default function Partie() {
     load()
   }
 
+  async function deleteBatch(batch) {
+    // Usuń najpierw korekty powiązane z partią
+    await supabase.from('stock_corrections').delete().eq('ingredient_batch_id', batch.id)
+    // Usuń powiązania produkcyjne (production_batch_items)
+    await supabase.from('production_batch_items').delete().eq('ingredient_batch_id', batch.id)
+    // Usuń samą partię
+    await supabase.from('ingredient_batches').delete().eq('id', batch.id)
+    setDeleteConfirm(null)
+    load()
+  }
+
   const batchCorrections = selectedBatch ? corrections.filter(c => c.ingredient_batch_id===selectedBatch.id) : []
 
   return (
@@ -214,6 +226,7 @@ export default function Partie() {
                       <div className="flex" style={{ gap:4 }}>
                         {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
                         <button className="btn btn-sm btn-warn" onClick={() => openCorr(b)}>Korekta</button>
+                        {isAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)}>Usuń</button>}
                       </div>
                     </td>
                   </tr>
@@ -421,6 +434,24 @@ export default function Partie() {
           <div className="modal-footer">
             <button className="btn" onClick={() => setEditCorrModal(false)}>Anuluj</button>
             <button className="btn btn-primary" onClick={saveEditCorr} disabled={saving}>{saving?'Zapisywanie...':'Zapisz zmiany'}</button>
+          </div>
+        </div>
+      </div>
+      {/* Modal potwierdzenie usunięcia partii */}
+      <div className={`modal-overlay ${deleteConfirm?'open':''}`} onClick={e => e.target===e.currentTarget && setDeleteConfirm(null)}>
+        <div className="modal" style={{ maxWidth:480 }}>
+          <div className="modal-title">Usuń przyjęcie partii</div>
+          <div className="warn-box">
+            Czy na pewno chcesz usunąć przyjęcie partii <b>{deleteConfirm?.delivery_lot}</b>?<br/><br/>
+            Zostaną automatycznie usunięte:<br/>
+            • Wszystkie korekty tej partii<br/>
+            • Powiązania z partiami produkcyjnymi (FIFO)<br/><br/>
+            <b>Uwaga:</b> jeśli ta partia była użyta w produkcji, stany FIFO mogą wymagać przeliczenia.<br/><br/>
+            Operacja jest nieodwracalna.
+          </div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setDeleteConfirm(null)}>Anuluj</button>
+            <button className="btn btn-danger" onClick={() => deleteBatch(deleteConfirm)}>Tak, usuń partię</button>
           </div>
         </div>
       </div>
