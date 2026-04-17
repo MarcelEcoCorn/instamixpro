@@ -143,7 +143,7 @@ export default function Produkcja() {
           usedMap[u.ingredient_batch_id] = (usedMap[u.ingredient_batch_id]||0) + parseFloat(u.quantity_used_kg)
         }
       }
-      const { data: stockAll } = await supabase.from('v_stock').select('*').eq('status', 'dopuszczona').order('received_date', { ascending: true })
+      const { data: stockAll } = await supabase.from('v_stock').select('*').eq('status', 'dopuszczona').order('received_date', { ascending: true }).order('expiry_date', { ascending: true, nullsFirst: false })
       const availableMap = {}
       for (const s of (stockAll||[])) {
         const used = usedMap[s.id]||0
