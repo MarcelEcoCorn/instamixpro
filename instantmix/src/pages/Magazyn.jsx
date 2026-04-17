@@ -274,9 +274,10 @@ export default function Magazyn() {
     // FIFO wartościowe — pobierz wszystkie partie z cenami posortowane wg daty przyjęcia
     const { data: allBatchesFifo } = await supabase
       .from('ingredient_batches')
-      .select('id, ingredient_id, quantity_kg, unit_price_pln, received_date')
+      .select('id, ingredient_id, quantity_kg, unit_price_pln, received_date, expiry_date')
       .order('ingredient_id')
       .order('received_date', { ascending: true })
+      .order('expiry_date', { ascending: true, nullsFirst: false })
 
     // Pobierz CAŁE zużycie produkcyjne z przypisanymi cenami partii
     const { data: allProdUsed } = await supabase
