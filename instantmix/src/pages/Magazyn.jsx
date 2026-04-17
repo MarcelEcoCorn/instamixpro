@@ -271,21 +271,63 @@ export default function Magazyn() {
       }
     }
 
-    // Oblicz średnią ważoną cenę jednostkową dla każdego składnika (ze wszystkich partii z ceną)
-    const { data: allBatchPrices } = await supabase
+    // FIFO wartościowe — pobierz wszystkie partie z cenami posortowane wg daty przyjęcia
+    const { data: allBatchesFifo } = await supabase
       .from('ingredient_batches')
-      .select('ingredient_id, quantity_kg, unit_price_pln')
-      .not('unit_price_pln', 'is', null)
-    const priceMap = {} // ingredient_id -> weighted avg price
-    const priceQtyMap = {}, priceValSumMap = {}
-    for (const b of (allBatchPrices||[])) {
-      if (parseFloat(b.unit_price_pln||0) > 0) {
-        priceQtyMap[b.ingredient_id] = (priceQtyMap[b.ingredient_id]||0) + parseFloat(b.quantity_kg)
-        priceValSumMap[b.ingredient_id] = (priceValSumMap[b.ingredient_id]||0) + parseFloat(b.quantity_kg) * parseFloat(b.unit_price_pln)
+      .select('id, ingredient_id, quantity_kg, unit_price_pln, received_date')
+      .order('ingredient_id')
+      .order('received_date', { ascending: true })
+
+    // Pobierz CAŁE zużycie produkcyjne z przypisanymi cenami partii
+    const { data: allProdUsed } = await supabase
+      .from('production_batch_items')
+      .select('ingredient_id, quantity_used_kg, ingredient_batch_id, ingredient_batches(unit_price_pln), production_batches(production_date)')
+
+    // Korekty wszystkie z cenami
+    const { data: allCorrs } = await supabase
+      .from('stock_corrections')
+      .select('ingredient_batch_id, delta_kg, event_date, ingredient_batches(ingredient_id, unit_price_pln)')
+
+    // Funkcja FIFO wartościowa — oblicza wartość BZ dla danego składnika
+    // Logika: symuluj FIFO — odejmuj zużycie i korekty od kolejnych partii (wg daty przyjęcia)
+    function calcFifoVal(ingId) {
+      // Partie tego składnika wg FIFO
+      const ingBatches = (allBatchesFifo||[])
+        .filter(b => b.ingredient_id === ingId && parseFloat(b.unit_price_pln||0) > 0)
+        .map(b => ({
+          id: b.id,
+          remaining: parseFloat(b.quantity_kg),
+          price: parseFloat(b.unit_price_pln)
+        }))
+      if (ingBatches.length === 0) return null
+
+      // Korekty inwentury — modyfikują ilość w partiach
+      for (const k of (allCorrs||[])) {
+        const ingId2 = k.ingredient_batches?.ingredient_id
+        if (ingId2 !== ingId) continue
+        const batch = ingBatches.find(b => b.id === k.ingredient_batch_id)
+        if (batch) batch.remaining += parseFloat(k.delta_kg)
       }
-    }
-    for (const id of Object.keys(priceQtyMap)) {
-      if (priceQtyMap[id] > 0) priceMap[id] = priceValSumMap[id] / priceQtyMap[id]
+
+      // Odejmij zużycie produkcyjne (wszystkie partie produkcyjne <= d2)
+      // Zużycie w kolejności daty produkcji — starsze partie zużywają starsze składniki
+      const usedForIng = (allProdUsed||[])
+        .filter(p => p.ingredient_id === ingId && p.production_batches?.production_date <= d2)
+        .sort((a,b) => (a.production_batches?.production_date||'') < (b.production_batches?.production_date||'') ? -1 : 1)
+
+      for (const u of usedForIng) {
+        // Znajdź partię składnika której to zużycie dotyczy
+        const batch = ingBatches.find(b => b.id === u.ingredient_batch_id)
+        if (batch) batch.remaining -= parseFloat(u.quantity_used_kg)
+      }
+
+      // BZ wartość = suma pozostałości × cena dla każdej partii
+      let bzVal = 0
+      for (const b of ingBatches) {
+        const rem = Math.max(0, b.remaining)
+        bzVal += rem * b.price
+      }
+      return parseFloat(bzVal.toFixed(2))
     }
 
     const bilans = (ingredients||[]).map(ing => {
@@ -294,13 +336,13 @@ export default function Magazyn() {
       const kor = parseFloat((korMap[ing.id]||0).toFixed(3))
       const rozch = parseFloat((rozchMap[ing.id]||0).toFixed(3))
       const bz = parseFloat(Math.max(0, bo + przych + kor - rozch).toFixed(3))
-      const boVal = parseFloat((boValMap[ing.id]||0).toFixed(2))
+      const boVal = parseFloat(Math.max(0, boValMap[ing.id]||0).toFixed(2))
       const przychVal = parseFloat((przychValMap[ing.id]||0).toFixed(2))
       const korVal = parseFloat((korValMap[ing.id]||0).toFixed(2))
       const rozchVal = parseFloat((rozchValMap[ing.id]||0).toFixed(2))
-      // BZ wartość = BZ_kg × aktualna cena jednostkowa (dokładniejsze niż sumowanie kroków)
-      const avgPrice = priceMap[ing.id] || 0
-      const bzVal = avgPrice > 0 ? parseFloat((bz * avgPrice).toFixed(2)) : parseFloat(Math.max(0, boVal + przychVal + korVal - rozchVal).toFixed(2))
+      // BZ wartość — FIFO wartościowe: dokładne co do grosza
+      const bzValFifo = calcFifoVal(ing.id)
+      const bzVal = bzValFifo !== null ? bzValFifo : parseFloat(Math.max(0, boVal + przychVal + korVal - rozchVal).toFixed(2))
       return { id:ing.id, code:ing.code, name:ing.name, bo, przych, kor, rozch, bz, boVal, przychVal, korVal, rozchVal, bzVal }
     }).filter(r => r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0)
 
