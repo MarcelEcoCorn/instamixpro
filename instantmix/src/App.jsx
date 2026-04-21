@@ -22,7 +22,7 @@ export default function App() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState('produkcja')
+  const [page, setPage] = useState('receptury')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
