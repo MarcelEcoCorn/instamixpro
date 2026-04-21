@@ -1,16 +1,25 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../App'
 import * as XLSX from 'xlsx'
 
-const MODULES = [
+const MODULES_ADMIN = [
   { id: 'produkcja',  label: 'Produkcja',             desc: 'Wszystkie partie produkcyjne z recepturami i statusami', icon: '🏭' },
   { id: 'skladniki',  label: 'Składniki',              desc: 'Baza składników z alergenami, GMO i specyfikacjami',     icon: '🧪' },
   { id: 'partie',     label: 'Partie składników',      desc: 'Przyjęcia dostaw ze stanami, wartościami i korektami',  icon: '📦' },
   { id: 'receptury',  label: 'Receptury',              desc: 'Receptury ze składnikami i udziałami procentowymi',      icon: '📋' },
+  { id: 'zlecenia',   label: 'Zlecenia',               desc: 'Zlecenia produkcyjne ze statusami i datami wysyłki',    icon: '📝' },
   { id: 'kalkulator', label: 'Historia kalkulatora',   desc: 'Powiązania partii produkcyjnych ze składnikami (FIFO)', icon: '🔢' },
   { id: 'magazynwg',  label: 'Magazyn WG',             desc: 'Stany wyrobów gotowych i dokumenty WZ',                 icon: '🏪' },
   { id: 'klienci',    label: 'Kartoteka klientów',     desc: 'Lista klientów z numerami i powiązanymi recepturami',   icon: '👥' },
-  { id: 'pelny',      label: 'Pełna kopia zapasowa',  desc: 'Wszystkie moduły w jednym pliku — do archiwum',          icon: '💾' },
+  { id: 'pelny',      label: 'Pełna kopia zapasowa',   desc: 'Wszystkie moduły w jednym pliku — do archiwum',         icon: '💾' },
+]
+
+const MODULES_SPRZEDAZ = [
+  { id: 'klienci',    label: 'Kartoteka klientów',     desc: 'Lista klientów z numerami i powiązanymi recepturami',   icon: '👥' },
+  { id: 'magazynwg',  label: 'Magazyn WG',             desc: 'Stany wyrobów gotowych i dokumenty WZ',                 icon: '🏪' },
+  { id: 'receptury',  label: 'Receptury',              desc: 'Receptury ze składnikami i udziałami procentowymi',      icon: '📋' },
+  { id: 'zlecenia',   label: 'Zlecenia',               desc: 'Zlecenia produkcyjne ze statusami i datami wysyłki',    icon: '📝' },
 ]
 
 function today() { return new Date().toISOString().slice(0, 10) }
@@ -67,10 +76,7 @@ async function fetchSkladniki() {
 }
 
 async function fetchPartie() {
-  const { data: b } = await supabase
-    .from('ingredient_batches')
-    .select('*, ingredients(code,name)')
-    .order('received_date', { ascending: false })
+  const { data: b } = await supabase.from('ingredient_batches').select('*, ingredients(code,name)').order('received_date', { ascending: false })
   const { data: c } = await supabase.from('stock_corrections').select('*')
   const corrMap = {}
   for (const corr of (c || [])) {
@@ -106,10 +112,7 @@ async function fetchPartie() {
 }
 
 async function fetchReceptury() {
-  const { data } = await supabase
-    .from('recipes')
-    .select('*, recipe_items(sort_order, percentage, ingredients(code,name,has_allergen,allergen_type))')
-    .order('code')
+  const { data } = await supabase.from('recipes').select('*, recipe_items(sort_order, percentage, ingredients(code,name,has_allergen,allergen_type))').order('code')
   const rows = []
   for (const r of (data || [])) {
     const items = (r.recipe_items || []).sort((a, b) => a.sort_order - b.sort_order)
@@ -137,11 +140,28 @@ async function fetchReceptury() {
   return rows
 }
 
-async function fetchKalkulator() {
+async function fetchZlecenia() {
   const { data } = await supabase
-    .from('production_batch_items')
-    .select('*, production_batches(lot_number, production_date, quantity_kg), ingredient_batches(delivery_lot, received_date), ingredients(code,name)')
-    .order('created_at', { ascending: false })
+    .from('orders')
+    .select('*, recipes(code, name, version), production_batches(lot_number)')
+    .order('ship_date', { ascending: false })
+  return (data || []).map(r => ({
+    'Nr zlecenia': r.order_number,
+    'Klient': r.client,
+    'Kod receptury': r.recipes?.code || '',
+    'Nazwa mieszanki': r.recipes?.name || '',
+    'Wersja': r.recipes?.version || '',
+    'Ilość (kg)': parseFloat(r.quantity_kg),
+    'Data wysyłki': r.ship_date,
+    'Status': r.status,
+    'Nr partii produkcji': r.production_batches?.lot_number || '',
+    'Uwagi': r.notes || '',
+    'Data utworzenia': r.created_at?.slice(0, 10) || '',
+  }))
+}
+
+async function fetchKalkulator() {
+  const { data } = await supabase.from('production_batch_items').select('*, production_batches(lot_number, production_date, quantity_kg), ingredient_batches(delivery_lot, received_date), ingredients(code,name)').order('created_at', { ascending: false })
   return (data || []).map(r => ({
     'Nr partii produkcji': r.production_batches?.lot_number || '',
     'Data produkcji': r.production_batches?.production_date || '',
@@ -156,15 +176,8 @@ async function fetchKalkulator() {
 }
 
 async function fetchMagazynWG() {
-  const { data: fg } = await supabase
-    .from('v_finished_goods')
-    .select('*')
-    .order('received_date', { ascending: false })
-  const { data: wz } = await supabase
-    .from('wz_documents')
-    .select('*')
-    .order('issue_date', { ascending: false })
-
+  const { data: fg } = await supabase.from('v_finished_goods').select('*').order('received_date', { ascending: false })
+  const { data: wz } = await supabase.from('wz_documents').select('*').order('issue_date', { ascending: false })
   const fgRows = (fg || []).map(r => ({
     'Nr partii produkcji': r.lot_number,
     'Kod receptury': r.recipe_code,
@@ -179,7 +192,6 @@ async function fetchMagazynWG() {
     'Lokalizacja': r.location || '',
     'Uwagi': r.notes || '',
   }))
-
   const wzRows = (wz || []).map(r => ({
     'Nr WZ': r.wz_number,
     'Data wydania': r.issue_date,
@@ -189,21 +201,18 @@ async function fetchMagazynWG() {
     'Ilość wydana (kg)': parseFloat(r.quantity_kg),
     'Uwagi': r.notes || '',
   }))
-
   return { fgRows, wzRows }
 }
 
 async function fetchKlienci() {
-  const { data } = await supabase
-    .from('clients')
-    .select('*, recipes(code, name, version)')
-    .order('number')
+  const { data } = await supabase.from('clients').select('*, recipes(code, name, version)').order('number')
   const rows = []
   for (const c of (data || [])) {
     const recList = (c.recipes || []).map(r => `${r.code} (${r.version})`).join(', ')
     rows.push({
       'Nr klienta': c.number,
       'Nazwa klienta': c.name,
+      'Status': c.status || '',
       'Uwagi': c.notes || '',
       'Liczba receptur': c.recipes?.length || 0,
       'Receptury': recList,
@@ -228,6 +237,10 @@ function buildWorkbook(sheets) {
 }
 
 export default function Eksport() {
+  const { profile } = useAuth()
+  const isSprzedaz = profile?.role === 'sprzedaz'
+  const modules = isSprzedaz ? MODULES_SPRZEDAZ : MODULES_ADMIN
+
   const [loading, setLoading] = useState({})
   const [lastExport, setLastExport] = useState({})
 
@@ -236,8 +249,8 @@ export default function Eksport() {
     try {
       let wb, filename
       if (moduleId === 'pelny') {
-        const [prod, skl, par, rec, kal, kli] = await Promise.all([
-          fetchProdukcja(), fetchSkladniki(), fetchPartie(), fetchReceptury(), fetchKalkulator(), fetchKlienci()
+        const [prod, skl, par, rec, kal, kli, zl] = await Promise.all([
+          fetchProdukcja(), fetchSkladniki(), fetchPartie(), fetchReceptury(), fetchKalkulator(), fetchKlienci(), fetchZlecenia()
         ])
         const { fgRows, wzRows } = await fetchMagazynWG()
         wb = buildWorkbook([
@@ -245,6 +258,7 @@ export default function Eksport() {
           { name: 'Składniki', data: skl },
           { name: 'Partie składników', data: par },
           { name: 'Receptury', data: rec },
+          { name: 'Zlecenia', data: zl },
           { name: 'FIFO - powiązania', data: kal },
           { name: 'Magazyn WG', data: fgRows },
           { name: 'Dokumenty WZ', data: wzRows },
@@ -261,11 +275,11 @@ export default function Eksport() {
       } else {
         const fetchers = {
           produkcja: fetchProdukcja, skladniki: fetchSkladniki, partie: fetchPartie,
-          receptury: fetchReceptury, kalkulator: fetchKalkulator, klienci: fetchKlienci
+          receptury: fetchReceptury, zlecenia: fetchZlecenia, kalkulator: fetchKalkulator, klienci: fetchKlienci
         }
         const names = {
           produkcja: 'Produkcja', skladniki: 'Składniki', partie: 'Partie składników',
-          receptury: 'Receptury', kalkulator: 'FIFO powiązania', klienci: 'Kartoteka klientów'
+          receptury: 'Receptury', zlecenia: 'Zlecenia', kalkulator: 'FIFO powiązania', klienci: 'Kartoteka klientów'
         }
         const data = await fetchers[moduleId]()
         wb = buildWorkbook([{ name: names[moduleId], data }])
@@ -284,16 +298,18 @@ export default function Eksport() {
       <div className="page-header">
         <div>
           <div className="page-title">Eksport danych / kopia zapasowa</div>
-          <div className="page-sub">Pobierz dane do pliku Excel (.xlsx) — zalecane co tydzień lub co miesiąc</div>
+          <div className="page-sub">Pobierz dane do pliku Excel (.xlsx)</div>
         </div>
       </div>
 
-      <div className="info-box" style={{ marginBottom: 16 }}>
-        Dane są bezpieczne w Supabase (chmura). Eksport służy jako dodatkowa kopia zapasowa na Twoim dysku oraz do analizy w Excelu. Pliki są pobierane bezpośrednio na Twój komputer.
-      </div>
+      {!isSprzedaz && (
+        <div className="info-box" style={{ marginBottom: 16 }}>
+          Dane są bezpieczne w Supabase (chmura). Eksport służy jako dodatkowa kopia zapasowa na Twoim dysku oraz do analizy w Excelu.
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-        {MODULES.map(m => (
+        {modules.map(m => (
           <div key={m.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <span style={{ fontSize: 24 }}>{m.icon}</span>
@@ -319,23 +335,25 @@ export default function Eksport() {
         ))}
       </div>
 
-      <div className="card" style={{ marginTop: 8, background: '#F1EFE8' }}>
-        <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8 }}>Zalecany harmonogram kopii zapasowych</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, fontSize: 13 }}>
-          <div>
-            <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>Co tydzień</div>
-            <div className="muted">Produkcja + Partie składników + Magazyn WG — aktywne dane operacyjne</div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>Co miesiąc</div>
-            <div className="muted">Pełna kopia zapasowa — wszystkie moduły w jednym pliku</div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>Po każdej zmianie</div>
-            <div className="muted">Składniki + Receptury + Kartoteka klientów — po dodaniu lub edycji</div>
+      {!isSprzedaz && (
+        <div className="card" style={{ marginTop: 8, background: '#F1EFE8' }}>
+          <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8 }}>Zalecany harmonogram kopii zapasowych</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, fontSize: 13 }}>
+            <div>
+              <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>Co tydzień</div>
+              <div className="muted">Produkcja + Partie składników + Magazyn WG — aktywne dane operacyjne</div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>Co miesiąc</div>
+              <div className="muted">Pełna kopia zapasowa — wszystkie moduły w jednym pliku</div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 500, color: '#0F6E56', marginBottom: 4 }}>Po każdej zmianie</div>
+              <div className="muted">Składniki + Receptury + Kartoteka klientów — po dodaniu lub edycji</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
