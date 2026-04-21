@@ -13,11 +13,11 @@ const NAV = [
   { id: 'magazynwg',  label: 'Magazyn WG',          roles: ['admin','technolog','brygadzista','sprzedaz'] },
   { id: 'dashboard',  label: 'Dashboard',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
   { id: 'klienci',    label: 'Kartoteka klientów',  roles: ['admin','sprzedaz'] },
-  { id: 'eksport',    label: 'Eksport / kopia',     roles: ['admin','technolog'] },
+  { id: 'eksport',    label: 'Eksport / kopia',     roles: ['admin','technolog','sprzedaz'] },
 ]
 
 // Kolejność zakładek dla roli sprzedaz
-const SPRZEDAZ_ORDER = ['klienci','receptury','zlecenia','produkcja','magazynwg','dashboard']
+const SPRZEDAZ_ORDER = ['klienci','receptury','zlecenia','produkcja','magazynwg','dashboard','eksport']
 
 const ROLE_LABELS = {
   admin: 'Admin', technolog: 'Technolog',
