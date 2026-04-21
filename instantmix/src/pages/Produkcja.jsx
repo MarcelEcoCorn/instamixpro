@@ -9,6 +9,7 @@ const STATUS_LABELS = { w_trakcie:'W trakcie', wyprodukowana:'Wyprodukowana', ws
 export default function Produkcja() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const isSprzedaz = profile?.role === 'sprzedaz'
 
   const [batches, setBatches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -275,7 +276,7 @@ export default function Produkcja() {
   ]
 
   const totalVal = batchTotalValue()
-  const hasValues = detailItems.some(it => parseFloat(it.ingredient_batches?.unit_price_pln||0) > 0)
+  const hasValues = !isSprzedaz && detailItems.some(it => parseFloat(it.ingredient_batches?.unit_price_pln||0) > 0)
 
   return (
     <div>
@@ -343,11 +344,11 @@ export default function Produkcja() {
                   <td>
                     <div className="flex" style={{ gap:4 }}>
                       <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
-                      {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
-                      {isAdmin && <button className="btn btn-sm" style={{ background:'#E1F5EE', color:'#085041', border:'0.5px solid #1D9E75', fontSize:11 }} onClick={() => { setEditLotBatch(b); setEditLotValue(b.lot_number); setEditLotModal(true) }} title="Zmień numer partii">Nr LOT</button>}
-                      {isAdmin && <button className="btn btn-sm" style={{ background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80' }} onClick={() => openEditItems(b)} title="Edytuj partie składników">Skł.</button>}
-                      {isAdmin && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }} onClick={() => recalcFIFO(b)} disabled={recalcId === b.id} title="Przelicz ponownie FIFO">{recalcId === b.id ? '...' : '↻ FIFO'}</button>}
-                      {isAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)} title="Usuń partię">Usuń</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#E1F5EE', color:'#085041', border:'0.5px solid #1D9E75', fontSize:11 }} onClick={() => { setEditLotBatch(b); setEditLotValue(b.lot_number); setEditLotModal(true) }} title="Zmień numer partii">Nr LOT</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80' }} onClick={() => openEditItems(b)} title="Edytuj partie składników">Skł.</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }} onClick={() => recalcFIFO(b)} disabled={recalcId === b.id} title="Przelicz ponownie FIFO">{recalcId === b.id ? '...' : '↻ FIFO'}</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)} title="Usuń partię">Usuń</button>}
                     </div>
                   </td>
                 </tr>
