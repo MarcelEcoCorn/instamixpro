@@ -1,16 +1,21 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_FORM = { number: '', name: '', notes: '' }
+const EMPTY_FORM = { number:'', name:'', notes:'', status:'aktywny' }
+const STATUS_KLIENTA = { aktywny:'Aktywny', oczekujacy:'Oczekujący', nieaktywny:'Nieaktywny' }
+const STATUS_COLORS = { aktywny:'b-ok', oczekujacy:'b-warn', nieaktywny:'b-gray' }
 
 export default function Klienci() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const isSprzedaz = profile?.role === 'sprzedaz'
+  const canEdit = isAdmin || isSprzedaz
 
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState('aktywni')
   const [modal, setModal] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -27,14 +32,21 @@ export default function Klienci() {
     setLoading(false)
   }
 
-  const filtered = clients.filter(c =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.number.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = clients.filter(c => {
+    const matchQ = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.number.toLowerCase().includes(search.toLowerCase())
+    const matchStatus =
+      filterStatus === 'aktywni' ? c.status !== 'archiwum' :
+      filterStatus === 'archiwum' ? c.status === 'archiwum' : true
+    return matchQ && matchStatus
+  })
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   function openNew() { setForm(EMPTY_FORM); setEditMode(false); setError(''); setModal(true) }
-  function openEdit(c) { setForm({ id: c.id, number: c.number, name: c.name, notes: c.notes||'' }); setEditMode(true); setError(''); setModal(true) }
+  function openEdit(c) {
+    setForm({ id:c.id, number:c.number, name:c.name, notes:c.notes||'', status:c.status||'aktywny' })
+    setEditMode(true); setError(''); setModal(true)
+  }
 
   async function save() {
     if (!form.number) { setError('Numer klienta jest wymagany'); return }
@@ -42,17 +54,23 @@ export default function Klienci() {
     setSaving(true); setError('')
     if (editMode) {
       const { error: err } = await supabase.from('clients').update({
-        number: form.number, name: form.name, notes: form.notes||null, updated_at: new Date().toISOString()
+        number:form.number, name:form.name, notes:form.notes||null,
+        status:form.status, updated_at:new Date().toISOString()
       }).eq('id', form.id)
       if (err) { setError(err.message); setSaving(false); return }
       await supabase.from('recipes').update({ client: form.name }).eq('client_id', form.id)
     } else {
       const { error: err } = await supabase.from('clients').insert({
-        number: form.number, name: form.name, notes: form.notes||null
+        number:form.number, name:form.name, notes:form.notes||null, status:form.status
       })
       if (err) { setError(err.message); setSaving(false); return }
     }
     setSaving(false); setModal(false); load()
+  }
+
+  async function archiveClient(c, archive) {
+    await supabase.from('clients').update({ status: archive ? 'archiwum' : 'aktywny', updated_at: new Date().toISOString() }).eq('id', c.id)
+    load()
   }
 
   async function deleteClient(c) {
@@ -61,14 +79,33 @@ export default function Klienci() {
     setConfirmDelete(null); load()
   }
 
+  const stats = {
+    aktywni: clients.filter(c => c.status !== 'archiwum').length,
+    archiwum: clients.filter(c => c.status === 'archiwum').length,
+  }
+
   return (
     <div>
       <div className="page-header">
-        <div><div className="page-title">Kartoteka klientów</div><div className="page-sub">Dostęp: Admin</div></div>
+        <div><div className="page-title">Kartoteka klientów</div><div className="page-sub">Dostęp: Admin, Sprzedaż</div></div>
         <div className="flex" style={{ gap:8 }}>
           <input className="search" placeholder="Szukaj klienta..." value={search} onChange={e => setSearch(e.target.value)} style={{ width:220 }} />
-          {isAdmin && <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nowy klient</button>}
+          {canEdit && <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nowy klient</button>}
         </div>
+      </div>
+
+      <div className="stat-grid">
+        <div className="stat-card"><div className="stat-label">Aktywnych klientów</div><div className="stat-val">{stats.aktywni}</div></div>
+        <div className="stat-card"><div className="stat-label">W archiwum</div><div className="stat-val" style={{ color:'#888' }}>{stats.archiwum}</div></div>
+      </div>
+
+      <div className="flex" style={{ marginBottom:10, gap:6 }}>
+        {[['aktywni','Aktywni'],['archiwum','Archiwum'],['wszystkie','Wszyscy']].map(([val,label]) => (
+          <button key={val} className="btn btn-sm" onClick={() => setFilterStatus(val)}
+            style={{ background:filterStatus===val?'#1D9E75':undefined, color:filterStatus===val?'#fff':undefined, borderColor:filterStatus===val?'#1D9E75':undefined }}>
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="card-0">
@@ -76,42 +113,60 @@ export default function Klienci() {
           <thead><tr>
             <th style={{ width:120 }}>Nr klienta</th>
             <th>Nazwa klienta</th>
+            <th style={{ width:120 }}>Status</th>
             <th>Uwagi</th>
             <th style={{ width:80, textAlign:'center' }}>Receptur</th>
             <th></th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={5} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={6} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(c => (
-              <tr key={c.id}>
+              <tr key={c.id} style={{ opacity: c.status==='archiwum' ? 0.6 : 1 }}>
                 <td><span className="lot">{c.number}</span></td>
                 <td style={{ fontWeight:500 }}>{c.name}</td>
+                <td>
+                  {c.status === 'archiwum'
+                    ? <span className="badge b-gray">Archiwum</span>
+                    : <span className={`badge ${STATUS_COLORS[c.status]||'b-gray'}`}>{STATUS_KLIENTA[c.status]||c.status}</span>
+                  }
+                </td>
                 <td className="muted">{c.notes||'—'}</td>
                 <td style={{ textAlign:'center' }}><span className="badge b-info">{c.recipes?.length||0}</span></td>
                 <td>
-                  {isAdmin && (
-                    <div className="flex" style={{ gap:4 }}>
-                      <button className="btn btn-sm" onClick={() => openEdit(c)}>Edytuj</button>
-                      <button className="btn btn-sm btn-danger" onClick={() => setConfirmDelete(c)}>Usuń</button>
-                    </div>
-                  )}
+                  <div className="flex" style={{ gap:4 }}>
+                    {canEdit && <button className="btn btn-sm" onClick={() => openEdit(c)}>Edytuj</button>}
+                    {canEdit && c.status !== 'archiwum' && (
+                      <button className="btn btn-sm" style={{ background:'#F1EFE8', color:'#5F5E5A', border:'0.5px solid #D3D1C7' }} onClick={() => archiveClient(c, true)}>Archiwizuj</button>
+                    )}
+                    {canEdit && c.status === 'archiwum' && (
+                      <button className="btn btn-sm" style={{ background:'#E1F5EE', color:'#085041', border:'0.5px solid #1D9E75' }} onClick={() => archiveClient(c, false)}>Przywróć</button>
+                    )}
+                    {isAdmin && <button className="btn btn-sm btn-danger" onClick={() => setConfirmDelete(c)}>Usuń</button>}
+                  </div>
                 </td>
               </tr>
             ))}
-            {!loading && filtered.length===0 && <tr><td colSpan={5} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak klientów</td></tr>}
+            {!loading && filtered.length===0 && <tr><td colSpan={6} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak klientów</td></tr>}
           </tbody>
         </table>
       </div>
 
       <div className={`modal-overlay ${modal?'open':''}`} onClick={e => e.target===e.currentTarget && setModal(false)}>
-        <div className="modal" style={{ maxWidth:440 }}>
+        <div className="modal" style={{ maxWidth:480 }}>
           <div className="modal-title">{editMode?'Edytuj klienta':'Nowy klient'}</div>
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
             <div><label>Numer klienta *</label><input value={form.number} onChange={e => f('number',e.target.value)} placeholder="np. K-001" /></div>
             <div><label>Nazwa klienta *</label><input value={form.name} onChange={e => f('name',e.target.value)} placeholder="Nazwa firmy" /></div>
           </div>
-          <div><label>Uwagi</label><input value={form.notes} onChange={e => f('notes',e.target.value)} placeholder="opcjonalne" /></div>
+          <div className="fr">
+            <div><label>Status klienta</label>
+              <select value={form.status} onChange={e => f('status',e.target.value)}>
+                {Object.entries(STATUS_KLIENTA).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div><label>Uwagi</label><input value={form.notes} onChange={e => f('notes',e.target.value)} placeholder="opcjonalne" /></div>
+          </div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setModal(false)}>Anuluj</button>
             <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'Zapisywanie...':editMode?'Zapisz zmiany':'Dodaj klienta'}</button>
