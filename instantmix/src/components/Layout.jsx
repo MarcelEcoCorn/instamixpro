@@ -7,7 +7,7 @@ const NAV = [
   { id: 'skladniki',  label: 'Składniki',           roles: ['admin'] },
   { id: 'partie',     label: 'Partie składników',   roles: ['admin','technolog'] },
   { id: 'kalkulator', label: 'Kalkulator',          roles: ['admin','technolog','brygadzista'] },
-  { id: 'produkcja',  label: 'Produkcja',           roles: ['admin','technolog','brygadzista'] },
+  { id: 'produkcja',  label: 'Produkcja',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
   { id: 'magazyn',    label: 'Magazyn składników',  roles: ['admin','technolog','brygadzista'] },
   { id: 'zlecenia',   label: 'Zlecenia',            roles: ['admin','technolog','sprzedaz'] },
   { id: 'magazynwg',  label: 'Magazyn WG',          roles: ['admin','technolog','brygadzista','sprzedaz'] },
@@ -17,7 +17,7 @@ const NAV = [
 ]
 
 // Kolejność zakładek dla roli sprzedaz
-const SPRZEDAZ_ORDER = ['klienci','receptury','zlecenia','magazynwg','dashboard']
+const SPRZEDAZ_ORDER = ['klienci','receptury','zlecenia','produkcja','magazynwg','dashboard']
 
 const ROLE_LABELS = {
   admin: 'Admin', technolog: 'Technolog',
