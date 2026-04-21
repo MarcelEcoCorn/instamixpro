@@ -21,7 +21,9 @@ const EMPTY_FORM = { client:'', recipe_id:'', quantity_kg:'', ship_date:'', stat
 
 export default function Zlecenia() {
   const { profile } = useAuth()
-  const canEdit = ['admin','technolog'].includes(profile?.role)
+  const isSprzedaz = profile?.role === 'sprzedaz'
+  const canEdit = ['admin','technolog','sprzedaz'].includes(profile?.role)
+  const canDelete = ['admin','technolog'].includes(profile?.role)
 
   const [orders, setOrders] = useState([])
   const [recipes, setRecipes] = useState([])
@@ -72,9 +74,7 @@ export default function Zlecenia() {
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
-  function openNew() {
-    setForm(EMPTY_FORM); setEditMode(false); setError(''); setModal(true)
-  }
+  function openNew() { setForm(EMPTY_FORM); setEditMode(false); setError(''); setModal(true) }
 
   function openEdit(order) {
     setForm({ id:order.id, client:order.client, recipe_id:order.recipe_id, quantity_kg:order.quantity_kg, ship_date:order.ship_date, status:order.status, notes:order.notes||'' })
@@ -126,8 +126,7 @@ export default function Zlecenia() {
   }
 
   function daysUntil(dateStr) {
-    const diff = Math.ceil((new Date(dateStr) - new Date()) / (1000*60*60*24))
-    return diff
+    return Math.ceil((new Date(dateStr) - new Date()) / (1000*60*60*24))
   }
 
   function shipDateBadge(order) {
@@ -143,7 +142,7 @@ export default function Zlecenia() {
   return (
     <div>
       <div className="page-header">
-        <div><div className="page-title">Zlecenia produkcyjne</div><div className="page-sub">Dostęp: Admin, Technolog</div></div>
+        <div><div className="page-title">Zlecenia produkcyjne</div><div className="page-sub">Dostęp: Admin, Technolog, Sprzedaż</div></div>
         <div className="flex" style={{ gap:8, alignItems:'center' }}>
           <span style={{ fontSize:11, color:'#085041', background:'#E1F5EE', padding:'2px 8px', borderRadius:999, display:'flex', alignItems:'center', gap:4 }}>
             <span style={{ width:6, height:6, borderRadius:'50%', background:'#1D9E75', display:'inline-block', animation:'pulse 2s infinite' }} />
@@ -195,11 +194,10 @@ export default function Zlecenia() {
                 <td>
                   {o.production_batches
                     ? <span className="lot">{o.production_batches.lot_number}</span>
-                    : <span className="muted">—</span>
-                  }
+                    : <span className="muted">—</span>}
                 </td>
                 <td>
-                  {canEdit ? (
+                  {canEdit && !isSprzedaz ? (
                     <select value={o.status} onChange={e => quickStatus(o, e.target.value)}
                       style={{ fontSize:11, padding:'2px 6px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer',
                         background: o.status==='nowe'?'#E6F1FB':o.status==='w_realizacji'?'#FAEEDA':o.status==='zrealizowane'?'#E1F5EE':o.status==='wyslane'?'#EEEDFE':'#F1EFE8',
@@ -215,7 +213,7 @@ export default function Zlecenia() {
                   {canEdit && (
                     <div className="flex" style={{ gap:4 }}>
                       <button className="btn btn-sm" onClick={() => openEdit(o)}>Edytuj</button>
-                      <button className="btn btn-sm btn-danger" onClick={() => setConfirmDelete(o)}>Usuń</button>
+                      {canDelete && <button className="btn btn-sm btn-danger" onClick={() => setConfirmDelete(o)}>Usuń</button>}
                     </div>
                   )}
                 </td>
@@ -226,7 +224,6 @@ export default function Zlecenia() {
         </table>
       </div>
 
-      {/* Modal nowe/edytuj zlecenie */}
       <div className={`modal-overlay ${modal?'open':''}`} onClick={e => e.target===e.currentTarget && setModal(false)}>
         <div className="modal">
           <div className="modal-title">{editMode?'Edytuj zlecenie':'Nowe zlecenie produkcyjne'}</div>
@@ -258,7 +255,6 @@ export default function Zlecenia() {
         </div>
       </div>
 
-      {/* Potwierdzenie usunięcia */}
       <div className={`modal-overlay ${confirmDelete?'open':''}`} onClick={e => e.target===e.currentTarget && setConfirmDelete(null)}>
         <div className="modal" style={{ maxWidth:420 }}>
           <div className="modal-title">Usuń zlecenie</div>
