@@ -69,7 +69,7 @@ export default function Receptury() {
 
   async function saveDuplicate() {
     if (!dupForm.code) { setError('Podaj nowy kod dla duplikatu'); return }
-    if (dupForm.code === dupSource.code) { setError('Nowy kod musi być inny niż oryginalny'); return }
+
     setSaving(true); setError('')
     const { data: rec, error: err } = await supabase.from('recipes').insert({
       code: dupForm.code, name: dupSource.name, version: dupSource.version,
@@ -381,7 +381,7 @@ export default function Receptury() {
           </div>
           {error && <div className="err-box">{error}</div>}
           <div style={{ marginBottom:10 }}>
-            <label>Nowy kod mieszanki * (musi być inny niż oryginał)</label>
+            <label>Kod mieszanki dla duplikatu *</label>
             <input value={dupForm.code} onChange={e => setDupForm(p=>({...p,code:e.target.value}))} placeholder={`np. ${dupSource?.code}-B`} />
           </div>
           <div>
