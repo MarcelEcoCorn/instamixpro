@@ -63,7 +63,7 @@ export default function Receptury() {
 
   function openDuplicate(recipe) {
     setDupSource(recipe)
-    setDupForm({ code:'', client: recipe.client||'', client_id: recipe.client_id||'' })
+    setDupForm({ code:'', version:'v2', client: recipe.client||'', client_id: recipe.client_id||'' })
     setError(''); setDupModal(true)
   }
 
@@ -72,7 +72,7 @@ export default function Receptury() {
 
     setSaving(true); setError('')
     const { data: rec, error: err } = await supabase.from('recipes').insert({
-      code: dupForm.code, name: dupSource.name, version: dupSource.version,
+      code: dupForm.code, name: dupSource.name, version: dupForm.version || dupSource.version,
       status: 'w_przegladzie', production_line: dupSource.production_line,
       approved_at: null, change_date: null, notes: dupSource.notes,
       client: dupForm.client || null, client_id: dupForm.client_id || null,
@@ -380,9 +380,13 @@ export default function Receptury() {
             Duplikat otrzyma status "W przeglądzie" i będzie wymagał zatwierdzenia.
           </div>
           {error && <div className="err-box">{error}</div>}
-          <div style={{ marginBottom:10 }}>
-            <label>Kod mieszanki dla duplikatu *</label>
-            <input value={dupForm.code} onChange={e => setDupForm(p=>({...p,code:e.target.value}))} placeholder={`np. ${dupSource?.code}-B`} />
+          <div className="fr">
+            <div><label>Kod mieszanki dla duplikatu *</label>
+              <input value={dupForm.code} onChange={e => setDupForm(p=>({...p,code:e.target.value}))} placeholder={dupSource?.code} />
+            </div>
+            <div><label>Wersja *</label>
+              <input value={dupForm.version} onChange={e => setDupForm(p=>({...p,version:e.target.value}))} placeholder="v2" />
+            </div>
           </div>
           <div>
             <label>Klient dla duplikatu</label>
