@@ -184,22 +184,26 @@ export default function Partie() {
         <div className="stat-card"><div className="stat-label">Wartość (filtr)</div><div className="stat-val" style={{ fontSize:15, color:'#3C3489' }}>{totalValue > 0 ? totalValue.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</div></div>
       </div>
 
-      <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ width:"100%" }}>
-          <thead><tr>
-            <th style={{width:'7%'}}>Kod</th>
+      <div className="card-0" style={{ overflow:'hidden' }}>
+        <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
+        <table style={{ width:"100%", minWidth:900, borderCollapse:'collapse' }}>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
+            <th style={{width:60}}>Kod</th>
             <th>Nazwa</th>
-            <th style={{width:'9%'}}>Nr partii</th>
-            <th style={{width:'7%'}}>Ważny do</th>
-            <th style={{width:'7%'}}>Data przyj.</th>
-            <th style={{textAlign:'right',width:'7%'}}>Ilość (kg)</th>
-            <th style={{textAlign:'right',width:'7%'}}>Cena/kg</th>
-            <th style={{textAlign:'right',width:'8%'}}>Wartość (zł)</th>
-            <th style={{width:'7%'}}>Status</th>
-            <th style={{width:'14%'}}>Akcja</th>
+            <th style={{width:80}}>Dostawca</th>
+            <th style={{width:130}}>Nr partii dostawy</th>
+            <th style={{width:75}}>Data prod.</th>
+            <th style={{width:75}}>Ważny do</th>
+            <th style={{width:75}}>Data przyj.</th>
+            <th style={{textAlign:'right',width:75}}>Ilość (kg)</th>
+            <th style={{textAlign:'right',width:65}}>Cena/kg</th>
+            <th style={{textAlign:'right',width:85}}>Wartość (zł)</th>
+            <th style={{width:100}}>Faktura</th>
+            <th style={{width:80}}>Status</th>
+            <th style={{width:80}}>Opcje</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={13} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(b => {
               const eff = effectiveQty(b)
               const val = effectiveValue(b)
@@ -209,43 +213,48 @@ export default function Partie() {
               return (
                 <React.Fragment key={b.id}>
                   <tr style={{ background: hasCorr ? '#FAEEDA22' : undefined }}>
-                    <td><span className="lot">{b.ingredients?.code}</span></td>
-                    <td style={{ fontWeight:500 }}>{b.ingredients?.name}</td>
-                    <td className="muted" style={{ fontSize:12 }}>{b.supplier_name || '—'}</td>
-                    <td><span className="lot">{b.delivery_lot}</span>{hasCorr && <span className="badge b-warn" style={{ marginLeft:4, fontSize:10 }}>korekta</span>}</td>
-                    <td className="muted">{b.production_date||'—'}</td>
-                    <td className="muted" style={{ color:isExpiring?'#BA7517':undefined }}>{b.expiry_date||'—'}</td>
-                    <td className="muted">{b.received_date}</td>
-                    <td style={{ fontWeight:500, textAlign:'right' }}>
-                      {hasCorr ? <><span style={{ textDecoration:'line-through', color:'#888', marginRight:4 }}>{b.quantity_kg}</span><b>{eff.toFixed(3)}</b></> : b.quantity_kg}
+                    <td><span className="lot" style={{fontSize:11}}>{b.ingredients?.code}</span></td>
+                    <td style={{ fontWeight:500, fontSize:13 }}>{b.ingredients?.name}</td>
+                    <td className="muted" style={{ fontSize:11 }}>{b.supplier_name || '—'}</td>
+                    <td><span className="lot" style={{fontSize:11}}>{b.delivery_lot}</span>{hasCorr && <span className="badge b-warn" style={{ marginLeft:4, fontSize:9 }}>korekta</span>}</td>
+                    <td className="muted" style={{fontSize:11}}>{b.production_date||'—'}</td>
+                    <td className="muted" style={{ fontSize:11, color:isExpiring?'#BA7517':undefined }}>{b.expiry_date||'—'}</td>
+                    <td className="muted" style={{fontSize:11}}>{b.received_date}</td>
+                    <td style={{ fontWeight:500, textAlign:'right', fontSize:12 }}>
+                      {hasCorr ? <><span style={{ textDecoration:'line-through', color:'#888', marginRight:4, fontSize:11 }}>{b.quantity_kg}</span><b>{eff.toFixed(3)}</b></> : b.quantity_kg}
                     </td>
-                    <td style={{ textAlign:'right', fontSize:12, color:'#5F5E5A' }}>{b.unit_price_pln ? parseFloat(b.unit_price_pln).toFixed(4) : '—'}</td>
-                    <td style={{ textAlign:'right', fontWeight:500, color: val ? '#3C3489' : '#888' }}>
+                    <td style={{ textAlign:'right', fontSize:11, color:'#5F5E5A' }}>{b.unit_price_pln ? parseFloat(b.unit_price_pln).toFixed(4) : '—'}</td>
+                    <td style={{ textAlign:'right', fontWeight:500, fontSize:11, color: val ? '#3C3489' : '#888' }}>
                       {val !== null ? val.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}
-                      {hasCorr && val !== null && <div style={{ fontSize:10, color:'#888' }}>po kor.</div>}
+                      {hasCorr && val !== null && <div style={{ fontSize:9, color:'#888' }}>po kor.</div>}
                     </td>
-                    <td className="muted">{b.invoice_number||'—'}</td>
-                    <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':b.status==='wstrzymana'?'b-err':'b-warn'}`}>{b.status}</span></td>
+                    <td className="muted" style={{fontSize:11}}>{b.invoice_number||'—'}</td>
+                    <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':b.status==='wstrzymana'?'b-err':'b-warn'}`} style={{fontSize:10}}>{b.status}</span></td>
                     <td>
-                      <div className="flex" style={{ gap:3, flexWrap:'wrap' }}>
-                        {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4', fontSize:11, padding:'3px 7px' }} onClick={() => openEdit(b)}>Edytuj</button>}
-                        <button className="btn btn-sm btn-warn" style={{ fontSize:11, padding:'3px 7px' }} onClick={() => openCorr(b)}>Korekta</button>
-                        {isAdmin && <button className="btn btn-sm btn-danger" style={{ fontSize:11, padding:'3px 7px' }} onClick={() => setDeleteConfirm(b)}>Usuń</button>}
+                      <div style={{ position:'relative', display:'inline-block' }}>
+                        <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEdit(b); else if(v==='korekta') openCorr(b); else if(v==='usun') setDeleteConfirm(b); }} defaultValue="" style={{ fontSize:11, padding:'3px 8px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#F9F8F5' }}>
+                          <option value="" disabled>Opcje ▾</option>
+                          {isAdmin && <option value="edytuj">✏️ Edytuj</option>}
+                          <option value="korekta">📝 Korekta</option>
+                          {isAdmin && <option value="usun">🗑️ Usuń</option>}
+                        </select>
                       </div>
                     </td>
                   </tr>
                   {corrs.map(c => (
                     <tr key={c.id} style={{ background:'#F9F8F5', fontSize:11 }}>
-                      <td colSpan={2} style={{ paddingLeft:24, color:'#888' }}>{CORR_LABELS[c.correction_type]}: {c.reason}</td>
-                      <td className="muted">{c.event_date}</td>
-                      <td colSpan={2}><span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span></td>
-                      <td colSpan={4}></td>
+                      <td></td>
+                      <td colSpan={2} style={{ paddingLeft:8, color:'#888', fontSize:11 }}>{CORR_LABELS[c.correction_type]}: <i>{c.reason}</i></td>
+                      <td colSpan={2} style={{fontSize:11}}><span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span></td>
+                      <td className="muted" style={{fontSize:11}}>{c.event_date}</td>
+                      <td colSpan={6}></td>
                       <td>
                         {isAdmin && (
-                          <div className="flex" style={{ gap:4 }}>
-                            <button className="btn btn-sm" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => openEditCorr(c)}>Edytuj</button>
-                            <button className="btn btn-sm btn-danger" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => deleteCorr(c.id)}>Usuń</button>
-                          </div>
+                          <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEditCorr(c); else if(v==='usun') deleteCorr(c.id); }} defaultValue="" style={{ fontSize:11, padding:'2px 6px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#F9F8F5' }}>
+                            <option value="" disabled>Opcje ▾</option>
+                            <option value="edytuj">✏️ Edytuj</option>
+                            <option value="usun">🗑️ Usuń</option>
+                          </select>
                         )}
                       </td>
                     </tr>
@@ -255,6 +264,7 @@ export default function Partie() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Modal nowe przyjęcie */}
