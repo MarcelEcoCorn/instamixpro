@@ -14,6 +14,7 @@ export default function Receptury() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterClient, setFilterClient] = useState('')
+  const [filterStatus, setFilterStatus] = useState('dopuszczone')
   const [expandedId, setExpandedId] = useState(null)
   const [modal, setModal] = useState(false)
   const [editMode, setEditMode] = useState(false)
@@ -46,7 +47,11 @@ export default function Receptury() {
       r.code.toLowerCase().includes(search.toLowerCase()) ||
       (r.client||'').toLowerCase().includes(search.toLowerCase())
     const matchClient = !filterClient || r.client_id === filterClient
-    return matchQ && matchClient
+    const matchStatus = filterStatus === 'wszystkie' ? true :
+      filterStatus === 'dopuszczone' ? r.status === 'dopuszczona' :
+      filterStatus === 'w_przegladzie' ? r.status === 'w_przegladzie' :
+      filterStatus === 'zarchiwizowane' ? r.status === 'zarchiwizowana' : true
+    return matchQ && matchClient && matchStatus
   })
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -175,6 +180,15 @@ export default function Receptury() {
           {filterClient && <button className="btn btn-sm" onClick={() => setFilterClient('')}>✕</button>}
           {canEdit && <button className="btn btn-primary btn-sm" onClick={openNew}>+ Nowa receptura</button>}
         </div>
+      </div>
+
+      <div className="flex" style={{ marginBottom:10, gap:6, flexWrap:'wrap' }}>
+        {[['dopuszczone','Dopuszczone'],['wszystkie','Wszystkie'],['w_przegladzie','W przeglądzie'],['zarchiwizowane','Zarchiwizowane']].map(([val,label]) => (
+          <button key={val} className="btn btn-sm" onClick={() => setFilterStatus(val)}
+            style={{ background:filterStatus===val?'#1D9E75':undefined, color:filterStatus===val?'#fff':undefined, borderColor:filterStatus===val?'#1D9E75':undefined }}>
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="card-0">
