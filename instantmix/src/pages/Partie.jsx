@@ -250,7 +250,7 @@ export default function Partie() {
                       <td>
                         {isAdmin && (
                           <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEditCorr(c); else if(v==='usun') deleteCorr(c.id); }} defaultValue="" style={{ fontSize:11, padding:'2px 6px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#EEEDFE', color:'#3C3489', fontWeight:500, minWidth:70 }}>
-                            <option value="" disabled>— Opcje —</option>
+                            <option value="" disabled> Opcje </option>
                             <option value="edytuj">✏️ Edytuj</option>
                             <option value="usun">🗑️ Usuń</option>
                           </select>
