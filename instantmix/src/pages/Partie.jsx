@@ -232,7 +232,7 @@ export default function Partie() {
                     <td>
                       <div style={{ position:'relative', display:'inline-block' }}>
                         <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEdit(b); else if(v==='korekta') openCorr(b); else if(v==='usun') setDeleteConfirm(b); }} defaultValue="" style={{ fontSize:11, padding:'3px 6px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#EEEDFE', color:'#3C3489', fontWeight:500, minWidth:70 }}>
-                          <option value="" disabled>— Opcje —</option>
+                          <option value="" disabled> Opcje </option>
                           {isAdmin && <option value="edytuj">✏️ Edytuj</option>}
                           <option value="korekta">📝 Korekta</option>
                           {isAdmin && <option value="usun">🗑️ Usuń</option>}
