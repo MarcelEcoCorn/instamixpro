@@ -222,7 +222,7 @@ export default function MagazynWG() {
   <div class="info-box"><div class="info-label">Lokalizacja magazynowa</div><div class="info-value">${good.location||'—'}</div></div>
 </div>
 <table>
-  <thead><tr>
+  <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
     <th>Lp.</th><th>Kod produktu</th><th>Nazwa produktu</th>
     <th style="text-align:right">Ilość (kg)</th><th>Nr partii</th><th>Uwagi</th>
   </tr></thead>
@@ -293,9 +293,9 @@ export default function MagazynWG() {
         ))}
       </div>
 
-      <div className="card-0" style={{ overflowX:'auto' }}>
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
         <table style={{ minWidth:900 }}>
-          <thead><tr>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{ width:32 }}></th>
             <th>Nr partii prod.</th><th>Receptura</th><th>Klient / Zlecenie</th>
             <th>Data przyjęcia</th><th style={{ textAlign:'right' }}>Przyjęto (kg)</th>
@@ -354,7 +354,7 @@ export default function MagazynWG() {
                         <div style={{ padding:'8px 16px 10px 40px' }}>
                           <div style={{ fontSize:12, fontWeight:500, marginBottom:6, color:'#0F6E56' }}>Dokumenty WZ — {g.lot_number}</div>
                           <table style={{ width:'auto', minWidth:600 }}>
-                            <thead><tr>
+                            <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
                               <th>Nr WZ</th><th>Data wydania</th><th>Odbiorca</th>
                               <th>Przewoźnik</th><th style={{ textAlign:'right' }}>Ilość (kg)</th>
                             </tr></thead>
