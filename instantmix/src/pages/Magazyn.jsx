@@ -430,7 +430,7 @@ tr:nth-child(even) td{background:#FAFAF8}
   </div>
 </div>
 <table>
-  <thead><tr>
+  <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
     <th style="width:22px">Lp.</th>
     <th style="width:60px">Kod</th>
     <th>Nazwa składnika</th>
@@ -495,7 +495,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
 .sig-label{font-size:8px;color:#888;text-transform:uppercase}
 @media print{@page{margin:8mm;size:A4}}</style></head><body>
 <div class="header"><div><div class="company">InstantMix Pro</div><div class="title">Inwentura magazynowa składników</div><div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Stan na dzień: ${dateStr}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${dateStr} ${timeStr}<br>Wydrukował: ${profile?.full_name||'—'}</div></div>
-<table><thead><tr><th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th><th style="width:70px;text-align:right">Przyjęto (kg)</th><th style="width:60px;text-align:right">Korekty (kg)</th><th style="width:70px;text-align:right">Zużyto (kg)</th><th style="width:70px;text-align:right">Stan (kg)</th><th style="width:90px;text-align:right">Wartość (zł)</th><th style="width:70px;text-align:right">Minimum (kg)</th><th style="width:60px">Status</th><th style="width:100px">Uwagi</th></tr></thead>
+<table><thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr><th style="width:22px">Lp.</th><th style="width:60px">Kod</th><th>Nazwa składnika</th><th style="width:70px;text-align:right">Przyjęto (kg)</th><th style="width:60px;text-align:right">Korekty (kg)</th><th style="width:70px;text-align:right">Zużyto (kg)</th><th style="width:70px;text-align:right">Stan (kg)</th><th style="width:90px;text-align:right">Wartość (zł)</th><th style="width:70px;text-align:right">Minimum (kg)</th><th style="width:60px">Status</th><th style="width:100px">Uwagi</th></tr></thead>
 <tbody>${tableRows}<tr class="total"><td colspan="3" style="text-align:right">SUMA:</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.in_stock,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.corrections_total,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.used_total,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.current,0).toFixed(3)}</td><td style="text-align:right">${filtered.reduce((s,r)=>s+r.value,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})} zł</td><td colspan="3"></td></tr></tbody></table>
 <div class="sig"><div style="font-weight:bold;font-size:10px;border-bottom:1px solid #D3D1C7;padding-bottom:5px">Potwierdzenie inwentury</div><div class="sig-grid"><div><div class="sig-label">Przeprowadził inwenturę</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Brygadzista)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził (Kierownik)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div></div>
 <script>window.onload=function(){window.print()}</script></body></html>`
@@ -550,7 +550,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
             ) : (
               <div style={{ overflowX:'auto' }}>
                 <table style={{ minWidth:900 }}>
-                  <thead><tr>
+                  <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
                     <th>Kod</th>
                     <th>Nazwa składnika</th>
                     <th style={{ textAlign:'right', background:'#E6F1FB', color:'#0C447C' }}>BO (kg)</th>
@@ -618,9 +618,9 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
 
       {isAdmin && <div className="info-box" style={{ marginBottom:10, fontSize:12 }}>Jako Admin możesz edytować minimalne stany — kliknij wartość w kolumnie "Minimum (kg)".</div>}
 
-      <div className="card-0" style={{ overflowX:'auto' }}>
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
         <table style={{ minWidth:960 }}>
-          <thead><tr>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{ width:32 }}></th>
             <th>Kod</th><th>Nazwa składnika</th>
             <th style={{ textAlign:'right' }}>Przyjęto (kg)</th>
@@ -693,7 +693,7 @@ td{padding:4px 5px;border:1px solid #D3D1C7}tr:nth-child(even) td{background:#FA
                           <div className="muted" style={{ fontSize:12 }}>Brak dopuszczonych partii na stanie</div>
                         ) : (
                           <table style={{ width:'auto', minWidth:500 }}>
-                            <thead><tr>
+                            <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
                               <th>Nr partii dostawy</th><th>Data przyjęcia</th><th>Data ważności</th>
                               <th style={{ textAlign:'right' }}>Stan (kg)</th>
                               <th style={{ textAlign:'right' }}>Wartość (zł)</th>
