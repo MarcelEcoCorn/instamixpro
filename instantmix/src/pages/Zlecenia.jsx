@@ -170,9 +170,9 @@ export default function Zlecenia() {
         ))}
       </div>
 
-      <div className="card-0" style={{ overflowX:'auto' }}>
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
         <table style={{ minWidth:860 }}>
-          <thead><tr>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th>Nr zlecenia</th><th>Klient</th><th>Receptura</th><th>Ilość (kg)</th>
             <th>Data wysyłki</th><th>Partia prod.</th><th>Status</th><th></th>
           </tr></thead>
