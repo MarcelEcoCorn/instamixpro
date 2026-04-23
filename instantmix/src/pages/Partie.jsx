@@ -184,9 +184,8 @@ export default function Partie() {
         <div className="stat-card"><div className="stat-label">Wartość (filtr)</div><div className="stat-val" style={{ fontSize:15, color:'#3C3489' }}>{totalValue > 0 ? totalValue.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}</div></div>
       </div>
 
-      <div className="card-0" style={{ overflow:'hidden' }}>
-        <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
-        <table style={{ width:'100%', minWidth:'max-content', borderCollapse:'collapse' }}>
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{width:60}}>Kod</th>
             <th>Nazwa</th>
@@ -264,7 +263,6 @@ export default function Partie() {
             })}
           </tbody>
         </table>
-        </div>
       </div>
 
       {/* Modal nowe przyjęcie */}
