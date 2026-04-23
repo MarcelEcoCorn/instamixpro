@@ -81,7 +81,7 @@ export default function Layout({ page, setPage, children }) {
         ))}
       </div>
 
-      <div style={{ flex:1, padding:'16px', maxWidth:'1140px', width:'100%', margin:'0 auto' }}>
+      <div style={{ flex:1, padding:'16px 12px', maxWidth:'1400px', width:'100%', margin:'0 auto' }}>
         {children}
       </div>
     </div>
