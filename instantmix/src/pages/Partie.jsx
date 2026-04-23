@@ -185,8 +185,8 @@ export default function Partie() {
       </div>
 
       <div className="card-0" style={{ overflow:'hidden' }}>
-        <div style={{ overflowX:'hidden', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
+        <table style={{ width:'100%', minWidth:'max-content', borderCollapse:'collapse' }}>
           <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{width:60}}>Kod</th>
             <th>Nazwa</th>
