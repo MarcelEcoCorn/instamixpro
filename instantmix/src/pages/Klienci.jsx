@@ -108,9 +108,9 @@ export default function Klienci() {
         ))}
       </div>
 
-      <div className="card-0">
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
         <table>
-          <thead><tr>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{ width:120 }}>Nr klienta</th>
             <th>Nazwa klienta</th>
             <th style={{ width:120 }}>Status</th>
