@@ -191,9 +191,9 @@ export default function Receptury() {
         ))}
       </div>
 
-      <div className="card-0">
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
         <table>
-          <thead><tr>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{ width:32 }}></th>
             <th>Kod</th><th>Klient</th><th>Nazwa mieszanki</th><th>Wersja</th><th>Linia</th>
             <th>Skł.</th><th>Status</th><th>Data zatw.</th><th>Data zmiany</th><th></th>
@@ -263,7 +263,7 @@ export default function Receptury() {
                           <span className="muted" style={{ fontSize:11, marginLeft:8 }}>Wklej Ctrl+V w Excelu — liczby zostaną rozpoznane automatycznie</span>
                         </div>
                         <table style={{ width:'auto', minWidth:500 }}>
-                          <thead><tr>
+                          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
                             <th>Kod skł.</th><th>Nazwa składnika</th>
                             <th style={{ textAlign:'right' }}>Udział %</th>
                             <th style={{ textAlign:'right' }}>Na 100 kg</th>
