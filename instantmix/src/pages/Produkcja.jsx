@@ -314,13 +314,13 @@ export default function Produkcja() {
 
       {recalcId && <div className="info-box" style={{ marginBottom:10 }}><span className="spinner" style={{ marginRight:8 }} />{recalcMsg}</div>}
 
-      <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:900, tableLayout:"fixed", width:"100%" }}>
-          <thead><tr>
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
+        <table style={{ width:"100%" }}>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{ width:32 }}></th>
-            <th style={{width:120}}>Nr partii prod.</th><th style={{width:80}}>Kod</th><th>Nazwa mieszanki</th>
-            <th style={{width:90}}>Klient</th><th style={{width:80}}>Data prod.</th><th style={{width:90}}>Linia prod.</th>
-            <th style={{width:75}}>Ilość (kg)</th><th style={{width:55}}>Wersja</th><th style={{width:90}}>Status</th><th style={{width:220}}>Akcje</th>
+            <th>Nr partii prod.</th><th>Kod</th><th>Nazwa mieszanki</th>
+            <th>Klient</th><th>Data prod.</th><th>Linia</th>
+            <th>Ilość (kg)</th><th>Wer.</th><th>Status</th><th>Akcje</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
@@ -342,13 +342,13 @@ export default function Produkcja() {
                   <td><span className="badge b-info">{b.recipe_version}</span></td>
                   <td><span className={`badge ${b.status==='wyprodukowana'?'b-ok':b.status==='wstrzymana'?'b-err':b.status==='wydana'?'b-info':'b-warn'}`}>{STATUS_LABELS[b.status]}</span></td>
                   <td>
-                    <div className="flex" style={{ gap:4 }}>
-                      <button className="btn btn-sm" onClick={() => exportDetailPDF(b)}>PDF</button>
-                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
-                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#E1F5EE', color:'#085041', border:'0.5px solid #1D9E75', fontSize:11 }} onClick={() => { setEditLotBatch(b); setEditLotValue(b.lot_number); setEditLotModal(true) }} title="Zmień numer partii">Nr LOT</button>}
-                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80' }} onClick={() => openEditItems(b)} title="Edytuj partie składników">Skł.</button>}
-                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC' }} onClick={() => recalcFIFO(b)} disabled={recalcId === b.id} title="Przelicz ponownie FIFO">{recalcId === b.id ? '...' : '↻ FIFO'}</button>}
-                      {isAdmin && !isSprzedaz && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)} title="Usuń partię">Usuń</button>}
+                    <div className="flex" style={{ gap:3, flexWrap:'wrap' }}>
+                      <button className="btn btn-sm" style={{ fontSize:11, padding:'3px 7px' }} onClick={() => exportDetailPDF(b)}>PDF</button>
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4', fontSize:11, padding:'3px 7px' }} onClick={() => openEdit(b)}>Edytuj</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#E1F5EE', color:'#085041', border:'0.5px solid #1D9E75', fontSize:11, padding:'3px 7px' }} onClick={() => { setEditLotBatch(b); setEditLotValue(b.lot_number); setEditLotModal(true) }} title="Zmień numer partii">Nr LOT</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80', fontSize:11, padding:'3px 7px' }} onClick={() => openEditItems(b)} title="Edytuj partie składników">Skł.</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm" style={{ background:'#EEEDFE', color:'#3C3489', border:'0.5px solid #AFA9EC', fontSize:11, padding:'3px 7px' }} onClick={() => recalcFIFO(b)} disabled={recalcId === b.id} title="Przelicz ponownie FIFO">{recalcId === b.id ? '...' : '↻ FIFO'}</button>}
+                      {isAdmin && !isSprzedaz && <button className="btn btn-sm btn-danger" style={{ fontSize:11, padding:'3px 7px' }} onClick={() => setDeleteConfirm(b)} title="Usuń partię">Usuń</button>}
                     </div>
                   </td>
                 </tr>
@@ -371,7 +371,7 @@ export default function Produkcja() {
                           {b.notes && <span> &nbsp;|&nbsp; Uwagi: {b.notes}</span>}
                         </div>
                         <table style={{ width:'auto', minWidth:600 }}>
-                          <thead><tr>
+                          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
                             <th>Kod skł.</th><th>Nazwa składnika</th><th>Partia dostawy</th>
                             <th style={{textAlign:'right'}}>Użyto (kg)</th><th>FIFO</th>
                             {isAdmin && <th style={{textAlign:'right'}}>Cena/kg</th>}
@@ -434,7 +434,7 @@ export default function Produkcja() {
           <div className="warn-box" style={{ marginBottom:10 }}>Ręczna edycja składników — uwaga: zmiana może być niezgodna z zasadami FIFO.</div>
           <div style={{ overflowX:'auto', marginBottom:10 }}>
             <table style={{ minWidth:580 }}>
-              <thead><tr><th>Składnik</th><th>Partia dostawy</th><th>Użyto (kg)</th><th style={{width:32}}></th></tr></thead>
+              <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr><th>Składnik</th><th>Partia dostawy</th><th>Użyto (kg)</th><th style={{width:32}}></th></tr></thead>
               <tbody>
                 {editItemsList.map((it, idx) => (
                   <tr key={idx}>
