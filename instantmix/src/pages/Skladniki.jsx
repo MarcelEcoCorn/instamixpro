@@ -18,7 +18,6 @@ export default function Skladniki() {
   const [ingForm, setIngForm] = useState(EMPTY_ING)
   const [ingEdit, setIngEdit] = useState(false)
 
-
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(null)
@@ -34,14 +33,12 @@ export default function Skladniki() {
 
   async function loadSuppliers(ingredientId) {
     if (expandedId === ingredientId) { setExpandedId(null); return }
-    // Zaczytaj unikalnych dostawców z historii przyjęć
     const { data } = await supabase
       .from('ingredient_batches')
       .select('supplier_name, invoice_number, received_date, quantity_kg, delivery_lot')
       .eq('ingredient_id', ingredientId)
       .not('supplier_name', 'is', null)
       .order('received_date', { ascending: false })
-    // Grupuj po nazwie dostawcy
     const grouped = {}
     for (const b of (data || [])) {
       const key = b.supplier_name
@@ -52,23 +49,6 @@ export default function Skladniki() {
     }
     setSuppliers(p => ({ ...p, [ingredientId]: Object.values(grouped) }))
     setExpandedId(ingredientId)
-  }
-
-  async function refreshSuppliers(ingredientId) {
-    const { data } = await supabase
-      .from('ingredient_batches')
-      .select('supplier_name, received_date, quantity_kg')
-      .eq('ingredient_id', ingredientId)
-      .not('supplier_name', 'is', null)
-      .order('received_date', { ascending: false })
-    const grouped = {}
-    for (const b of (data || [])) {
-      const key = b.supplier_name
-      if (!grouped[key]) grouped[key] = { supplier_name: key, deliveries: 0, last_delivery: b.received_date, total_kg: 0 }
-      grouped[key].deliveries++
-      grouped[key].total_kg += parseFloat(b.quantity_kg || 0)
-    }
-    setSuppliers(p => ({ ...p, [ingredientId]: Object.values(grouped) }))
   }
 
   const filtered = ingredients.filter(r =>
@@ -98,7 +78,6 @@ export default function Skladniki() {
     setConfirmDelete(null); load()
   }
 
-
   return (
     <div>
       <div className="page-header">
@@ -110,12 +89,12 @@ export default function Skladniki() {
       </div>
 
       <div className="info-box" style={{ marginBottom: 10, fontSize: 12 }}>
-        Kliknij ▼ przy składniku aby zobaczyć i zarządzać listą dostawców. Każdy składnik może mieć wielu dostawców z osobnymi specyfikacjami.
+        Kliknij ▼ przy składniku aby zobaczyć listę dostawców z historii przyjęć.
       </div>
 
-      <div className="card-0">
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 280px)' }}>
         <table>
-          <thead><tr>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{ width: 32 }}></th>
             <th>Kod</th><th>Nazwa składnika</th><th>Status</th><th>Dostawców</th><th></th>
           </tr></thead>
@@ -146,9 +125,7 @@ export default function Skladniki() {
                   <tr>
                     <td colSpan={6} style={{ padding: 0, background: '#F9F8F5' }}>
                       <div style={{ padding: '10px 16px 12px 40px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ fontSize: 12, fontWeight: 500, color: '#0F6E56' }}>Dostawcy z przyjęć — {ing.name}</span>
-                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: '#0F6E56', marginBottom: 8 }}>Dostawcy z przyjęć — {ing.name}</div>
                         {!suppliers[ing.id] || suppliers[ing.id].length === 0 ? (
                           <div className="muted" style={{ fontSize: 12 }}>Brak przyjęć z przypisanym dostawcą</div>
                         ) : (
@@ -182,7 +159,6 @@ export default function Skladniki() {
         </table>
       </div>
 
-      {/* Modal składnik */}
       <div className={`modal-overlay ${ingModal ? 'open' : ''}`} onClick={e => e.target === e.currentTarget && setIngModal(false)}>
         <div className="modal" style={{ maxWidth: 400 }}>
           <div className="modal-title">{ingEdit ? 'Edytuj składnik' : 'Nowy składnik'}</div>
@@ -203,8 +179,6 @@ export default function Skladniki() {
         </div>
       </div>
 
-
-      {/* Potwierdzenie usunięcia */}
       <div className={`modal-overlay ${confirmDelete ? 'open' : ''}`} onClick={e => e.target === e.currentTarget && setConfirmDelete(null)}>
         <div className="modal" style={{ maxWidth: 420 }}>
           <div className="modal-title">Usuń składnik</div>
