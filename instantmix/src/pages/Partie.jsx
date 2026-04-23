@@ -185,8 +185,8 @@ export default function Partie() {
       </div>
 
       <div className="card-0" style={{ overflow:'hidden' }}>
-        <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
-        <table style={{ width:"100%", minWidth:900, borderCollapse:'collapse' }}>
+        <div style={{ overflowX:'hidden', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
             <th style={{width:60}}>Kod</th>
             <th>Nazwa</th>
@@ -232,8 +232,8 @@ export default function Partie() {
                     <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':b.status==='wstrzymana'?'b-err':'b-warn'}`} style={{fontSize:10}}>{b.status}</span></td>
                     <td>
                       <div style={{ position:'relative', display:'inline-block' }}>
-                        <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEdit(b); else if(v==='korekta') openCorr(b); else if(v==='usun') setDeleteConfirm(b); }} defaultValue="" style={{ fontSize:11, padding:'3px 8px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#F9F8F5' }}>
-                          <option value="" disabled>Opcje ▾</option>
+                        <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEdit(b); else if(v==='korekta') openCorr(b); else if(v==='usun') setDeleteConfirm(b); }} defaultValue="" style={{ fontSize:11, padding:'3px 6px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#EEEDFE', color:'#3C3489', fontWeight:500, minWidth:70 }}>
+                          <option value="" disabled>— Opcje —</option>
                           {isAdmin && <option value="edytuj">✏️ Edytuj</option>}
                           <option value="korekta">📝 Korekta</option>
                           {isAdmin && <option value="usun">🗑️ Usuń</option>}
@@ -250,8 +250,8 @@ export default function Partie() {
                       <td colSpan={6}></td>
                       <td>
                         {isAdmin && (
-                          <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEditCorr(c); else if(v==='usun') deleteCorr(c.id); }} defaultValue="" style={{ fontSize:11, padding:'2px 6px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#F9F8F5' }}>
-                            <option value="" disabled>Opcje ▾</option>
+                          <select onChange={e => { const v=e.target.value; e.target.value=''; if(v==='edytuj') openEditCorr(c); else if(v==='usun') deleteCorr(c.id); }} defaultValue="" style={{ fontSize:11, padding:'2px 6px', border:'0.5px solid #D3D1C7', borderRadius:6, cursor:'pointer', background:'#EEEDFE', color:'#3C3489', fontWeight:500, minWidth:70 }}>
+                            <option value="" disabled>— Opcje —</option>
                             <option value="edytuj">✏️ Edytuj</option>
                             <option value="usun">🗑️ Usuń</option>
                           </select>
