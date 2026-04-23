@@ -315,12 +315,12 @@ export default function Produkcja() {
       {recalcId && <div className="info-box" style={{ marginBottom:10 }}><span className="spinner" style={{ marginRight:8 }} />{recalcMsg}</div>}
 
       <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:980 }}>
+        <table style={{ minWidth:900, tableLayout:"fixed", width:"100%" }}>
           <thead><tr>
             <th style={{ width:32 }}></th>
-            <th>Nr partii prod.</th><th>Kod</th><th>Nazwa mieszanki</th>
-            <th>Klient</th><th>Data prod.</th><th>Linia prod.</th>
-            <th>Ilość (kg)</th><th>Wersja</th><th>Status</th><th></th>
+            <th style={{width:120}}>Nr partii prod.</th><th style={{width:80}}>Kod</th><th>Nazwa mieszanki</th>
+            <th style={{width:90}}>Klient</th><th style={{width:80}}>Data prod.</th><th style={{width:90}}>Linia prod.</th>
+            <th style={{width:75}}>Ilość (kg)</th><th style={{width:55}}>Wersja</th><th style={{width:90}}>Status</th><th style={{width:220}}>Akcje</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
