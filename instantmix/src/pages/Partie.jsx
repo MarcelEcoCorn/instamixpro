@@ -185,14 +185,14 @@ export default function Partie() {
       </div>
 
       <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:1300 }}>
+        <table style={{ minWidth:1100, tableLayout:"fixed", width:"100%" }}>
           <thead><tr>
-            <th>Kod</th><th>Nazwa</th><th>Dostawca</th><th>Nr partii dostawy</th>
-            <th>Data prod.</th><th>Ważny do</th><th>Data przyj.</th>
-            <th style={{textAlign:'right'}}>Ilość (kg)</th>
-            <th style={{textAlign:'right'}}>Cena/kg</th>
-            <th style={{textAlign:'right'}}>Wartość (zł)</th>
-            <th>Faktura</th><th>Status</th><th>Akcja</th>
+            <th style={{width:60}}>Kod</th><th>Nazwa</th><th style={{width:90}}>Dostawca</th><th style={{width:110}}>Nr partii</th>
+            <th style={{width:80}}>Data prod.</th><th style={{width:80}}>Ważny do</th><th style={{width:80}}>Data przyj.</th>
+            <th style={{textAlign:'right',width:75}}>Ilość (kg)</th>
+            <th style={{textAlign:'right',width:65}}>Cena/kg</th>
+            <th style={{textAlign:'right',width:85}}>Wartość (zł)</th>
+            <th style={{width:90}}>Faktura</th><th style={{width:80}}>Status</th><th style={{width:160}}>Akcja</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={13} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
