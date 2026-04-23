@@ -185,17 +185,21 @@ export default function Partie() {
       </div>
 
       <div className="card-0" style={{ overflowX:'auto' }}>
-        <table style={{ minWidth:1100, tableLayout:"fixed", width:"100%" }}>
+        <table style={{ width:"100%" }}>
           <thead><tr>
-            <th style={{width:60}}>Kod</th><th>Nazwa</th><th style={{width:90}}>Dostawca</th><th style={{width:110}}>Nr partii</th>
-            <th style={{width:80}}>Data prod.</th><th style={{width:80}}>Ważny do</th><th style={{width:80}}>Data przyj.</th>
-            <th style={{textAlign:'right',width:75}}>Ilość (kg)</th>
-            <th style={{textAlign:'right',width:65}}>Cena/kg</th>
-            <th style={{textAlign:'right',width:85}}>Wartość (zł)</th>
-            <th style={{width:90}}>Faktura</th><th style={{width:80}}>Status</th><th style={{width:160}}>Akcja</th>
+            <th style={{width:'7%'}}>Kod</th>
+            <th>Nazwa</th>
+            <th style={{width:'9%'}}>Nr partii</th>
+            <th style={{width:'7%'}}>Ważny do</th>
+            <th style={{width:'7%'}}>Data przyj.</th>
+            <th style={{textAlign:'right',width:'7%'}}>Ilość (kg)</th>
+            <th style={{textAlign:'right',width:'7%'}}>Cena/kg</th>
+            <th style={{textAlign:'right',width:'8%'}}>Wartość (zł)</th>
+            <th style={{width:'7%'}}>Status</th>
+            <th style={{width:'14%'}}>Akcja</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={13} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={10} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(b => {
               const eff = effectiveQty(b)
               const val = effectiveValue(b)
@@ -223,21 +227,20 @@ export default function Partie() {
                     <td className="muted">{b.invoice_number||'—'}</td>
                     <td><span className={`badge ${b.status==='dopuszczona'?'b-ok':b.status==='wstrzymana'?'b-err':'b-warn'}`}>{b.status}</span></td>
                     <td>
-                      <div className="flex" style={{ gap:4 }}>
-                        {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4' }} onClick={() => openEdit(b)}>Edytuj</button>}
-                        <button className="btn btn-sm btn-warn" onClick={() => openCorr(b)}>Korekta</button>
-                        {isAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteConfirm(b)}>Usuń</button>}
+                      <div className="flex" style={{ gap:3, flexWrap:'wrap' }}>
+                        {isAdmin && <button className="btn btn-sm" style={{ background:'#E6F1FB', color:'#0C447C', border:'0.5px solid #B5D4F4', fontSize:11, padding:'3px 7px' }} onClick={() => openEdit(b)}>Edytuj</button>}
+                        <button className="btn btn-sm btn-warn" style={{ fontSize:11, padding:'3px 7px' }} onClick={() => openCorr(b)}>Korekta</button>
+                        {isAdmin && <button className="btn btn-sm btn-danger" style={{ fontSize:11, padding:'3px 7px' }} onClick={() => setDeleteConfirm(b)}>Usuń</button>}
                       </div>
                     </td>
                   </tr>
                   {corrs.map(c => (
                     <tr key={c.id} style={{ background:'#F9F8F5', fontSize:11 }}>
-                      <td colSpan={2} style={{ paddingLeft:24, color:'#888' }}>{CORR_LABELS[c.correction_type]}</td>
-                      <td colSpan={3} style={{ color:'#888' }}>{c.reason}</td>
+                      <td colSpan={2} style={{ paddingLeft:24, color:'#888' }}>{CORR_LABELS[c.correction_type]}: {c.reason}</td>
                       <td className="muted">{c.event_date}</td>
-                      <td><span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span></td>
+                      <td colSpan={2}><span className={`badge ${c.delta_kg<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{c.delta_kg>0?'+':''}{c.delta_kg} kg</span></td>
                       <td colSpan={4}></td>
-                      <td colSpan={2}>
+                      <td>
                         {isAdmin && (
                           <div className="flex" style={{ gap:4 }}>
                             <button className="btn btn-sm" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => openEditCorr(c)}>Edytuj</button>
