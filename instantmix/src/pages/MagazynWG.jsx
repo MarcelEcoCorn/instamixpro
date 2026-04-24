@@ -328,12 +328,12 @@ export default function MagazynWG() {
                   <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}><tr>
                     <th>Kod</th><th>Nazwa produktu</th>
                     <th style={{ textAlign: 'right', background: '#E6F1FB', color: '#0C447C' }}>BO (kg)</th>
+                    <th style={{ textAlign: 'right', background: '#E6F1FB', color: '#0C447C' }}>Wart. BO (zł)</th>
                     <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Przychód (kg)</th>
+                    <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Wart. przychodu (zł)</th>
                     <th style={{ textAlign: 'right', background: '#FFF8E1', color: '#E65100' }}>Korekty (kg)</th>
                     <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00' }}>Rozchód (kg)</th>
                     <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>BZ (kg)</th>
-                    <th style={{ textAlign: 'right', background: '#E6F1FB', color: '#0C447C' }}>Wart. BO (zł)</th>
-                    <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Wart. przychodu (zł)</th>
                     <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>Wart. BZ (zł)</th>
                   </tr></thead>
                   <tbody>
@@ -342,24 +342,24 @@ export default function MagazynWG() {
                         <td><span className="lot">{r.code}</span></td>
                         <td style={{ fontWeight: 500 }}>{r.name}</td>
                         <td style={{ textAlign: 'right', color: '#0C447C' }}>{r.bo.toFixed(3)}</td>
+                        <td style={{ textAlign: 'right', color: '#0C447C', fontSize: 11 }}>{r.boVal > 0 ? r.boVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                         <td style={{ textAlign: 'right', color: '#085041', fontWeight: 500 }}>{r.przych.toFixed(3)}</td>
+                        <td style={{ textAlign: 'right', color: '#085041', fontSize: 11, fontWeight: 500 }}>{r.przychVal > 0 ? r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                         <td style={{ textAlign: 'right', color: r.kor < 0 ? '#A32D2D' : r.kor > 0 ? '#085041' : '#888' }}>{r.kor !== 0 ? (r.kor > 0 ? '+' : '') + r.kor.toFixed(3) : '—'}</td>
                         <td style={{ textAlign: 'right', color: '#7B3F00', fontWeight: 500 }}>{r.rozch.toFixed(3)}</td>
                         <td style={{ textAlign: 'right', color: '#3C3489', fontWeight: 700 }}>{r.bz.toFixed(3)}</td>
-                        <td style={{ textAlign: 'right', color: '#0C447C', fontSize: 11 }}>{r.boVal > 0 ? r.boVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: '#085041', fontSize: 11, fontWeight: 500 }}>{r.przychVal > 0 ? r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: '#3C3489', fontSize: 11, fontWeight: 700 }}>{r.bzVal > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+                        <td style={{ textAlign: 'right', color: '#3C3489', fontSize: 11, fontWeight: 700 }}>{r.bz > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                       </tr>
                     ))}
                     <tr style={{ background: '#F1EFE8' }}>
                       <td colSpan={2} style={{ fontWeight: 500, textAlign: 'right' }}>SUMA</td>
                       <td style={{ textAlign: 'right', fontWeight: 700 }}>{bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#0C447C' }}>{bilansData.reduce((s,r)=>s+r.boVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#E65100' }}>{bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00' }}>{bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#0C447C' }}>{bilansData.reduce((s,r)=>s+r.boVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
                   </tbody>
