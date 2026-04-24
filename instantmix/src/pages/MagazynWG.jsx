@@ -22,6 +22,7 @@ export default function MagazynWG() {
   const [prodBatches, setProdBatches] = useState([])
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  const [batchValues, setBatchValues] = useState({})
 
   const [expandedProduct, setExpandedProduct] = useState(null)
   const [expandedGood, setExpandedGood] = useState(null)
@@ -73,6 +74,23 @@ export default function MagazynWG() {
       supabase.from('orders').select('id,order_number,client,quantity_kg,recipe_id,recipes(name,code)').in('status', ['w_realizacji', 'zrealizowane']).order('ship_date'),
       supabase.from('fg_corrections').select('*').order('created_at', { ascending: false }),
     ])
+    // Pobierz wartości surowców per partia produkcyjna
+    const batchIds = (g || []).map(x => x.production_batch_id).filter(Boolean)
+    let bvMap = {}
+    if (batchIds.length > 0) {
+      const { data: pbi } = await supabase
+        .from('production_batch_items')
+        .select('production_batch_id, quantity_used_kg, ingredient_batches(unit_price_pln)')
+        .in('production_batch_id', batchIds)
+      for (const item of (pbi || [])) {
+        const price = parseFloat(item.ingredient_batches?.unit_price_pln || 0)
+        const qty = parseFloat(item.quantity_used_kg || 0)
+        const val = price * qty
+        if (!bvMap[item.production_batch_id]) bvMap[item.production_batch_id] = 0
+        bvMap[item.production_batch_id] += val
+      }
+    }
+    setBatchValues(bvMap)
     const acceptedBatchIds = new Set((g || []).map(x => x.production_batch_id))
     setGoods(g || [])
     setWzDocs(wz || [])
@@ -350,6 +368,7 @@ export default function MagazynWG() {
             <th style={{ textAlign: 'right' }}>Korekty (kg)</th>
             <th style={{ textAlign: 'right' }}>Wydano (kg)</th>
             <th style={{ textAlign: 'right' }}>Dostępne (kg)</th>
+            <th style={{ textAlign: 'right' }}>Wart. surowców</th>
             <th style={{ textAlign: 'center' }}>Partii</th>
           </tr></thead>
           <tbody>
@@ -378,6 +397,9 @@ export default function MagazynWG() {
                       <span style={{ fontWeight: 700, fontSize: 14, color: available <= 0 ? '#888' : '#0F6E56' }}>{fmt3(available)}</span>
                       {available <= 0 && <span className="badge b-gray" style={{ marginLeft: 6, fontSize: 10 }}>Wydano</span>}
                     </td>
+                    <td style={{ textAlign: 'right', fontSize: 12, color: '#3C3489' }}>
+                      {(() => { const v = goodsForProduct(p.recipe_code).reduce((s,g) => s + (batchValues[g.production_batch_id] || 0), 0); return v > 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—' })()}
+                    </td>
                     <td style={{ textAlign: 'center', color: '#5F5E5A' }}>{p.batch_count}</td>
                   </tr>
 
@@ -394,6 +416,7 @@ export default function MagazynWG() {
                               <th style={{ textAlign: 'right' }}>Korekty (kg)</th>
                               <th style={{ textAlign: 'right' }}>Wydano (kg)</th>
                               <th style={{ textAlign: 'right' }}>Dostępne (kg)</th>
+                              <th style={{ textAlign: 'right' }}>Wart. surowców</th>
                               <th>Lokalizacja</th><th>Zlecenie</th><th></th>
                             </tr></thead>
                             <tbody>
@@ -422,6 +445,9 @@ export default function MagazynWG() {
                                       <td style={{ textAlign: 'right', color: '#633806', fontSize: 12 }}>{fmt3(g.issued_kg)}</td>
                                       <td style={{ textAlign: 'right' }}>
                                         <span style={{ fontWeight: 700, color: avail <= 0 ? '#888' : '#0F6E56', fontSize: 12 }}>{fmt3(avail)}</span>
+                                      </td>
+                                      <td style={{ textAlign: 'right', fontSize: 11, color: '#3C3489' }}>
+                                        {batchValues[g.production_batch_id] ? batchValues[g.production_batch_id].toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}
                                       </td>
                                       <td className="muted" style={{ fontSize: 11 }}>{g.location || '—'}</td>
                                       <td style={{ fontSize: 11 }}>
