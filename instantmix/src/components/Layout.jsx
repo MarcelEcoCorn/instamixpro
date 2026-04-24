@@ -10,7 +10,7 @@ const NAV = [
   { id: 'produkcja',  label: 'Produkcja',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
   { id: 'magazyn',    label: 'Magazyn składników',  roles: ['admin','technolog','brygadzista'] },
   { id: 'zlecenia',   label: 'Zlecenia',            roles: ['admin','technolog','sprzedaz'] },
-  { id: 'magazynwg',  label: 'Magazyn WG',          roles: ['admin','technolog','brygadzista','sprzedaz'] },
+  { id: 'magazynwg',  label: 'Magazyn Instant',      roles: ['admin','technolog','brygadzista','sprzedaz'] },
   { id: 'dashboard',  label: 'Dashboard',           roles: ['admin','technolog','brygadzista','sprzedaz'] },
   { id: 'klienci',    label: 'Kartoteka klientów',  roles: ['admin','sprzedaz'] },
   { id: 'eksport',    label: 'Eksport / kopia',     roles: ['admin','technolog','sprzedaz'] },
