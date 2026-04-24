@@ -224,6 +224,27 @@ export default function MagazynWG() {
   async function obliczBilans() {
     setBilansLoading(true); setShowBilans(true)
     const d1=bilansDat1, d2=bilansDat2
+
+    // Pobierz wartości surowców per partia
+    const { data: allGoods } = await supabase.from('finished_goods').select('id,production_batch_id')
+    const allBatchIds = (allGoods||[]).map(x=>x.production_batch_id).filter(Boolean)
+    const bvLocal = {}
+    if (allBatchIds.length > 0) {
+      const { data: pbi } = await supabase.from('production_batch_items').select('production_batch_id,quantity_used_kg,ingredient_batches(unit_price_pln)').in('production_batch_id', allBatchIds)
+      for (const item of (pbi||[])) {
+        const price = parseFloat(item.ingredient_batches?.unit_price_pln||0)
+        const qty = parseFloat(item.quantity_used_kg||0)
+        if (!bvLocal[item.production_batch_id]) bvLocal[item.production_batch_id] = 0
+        bvLocal[item.production_batch_id] += price * qty
+      }
+    }
+    // Mapa finished_good_id -> batch_value (proporcjonalnie do ilości)
+    const fgValueMap = {}
+    const fgQtyMap = {}
+    for (const fg of (allGoods||[])) {
+      fgValueMap[fg.id] = bvLocal[fg.production_batch_id] || 0
+    }
+
     const [{ data: przyjecia }, { data: przyjBefore }, { data: wzPeriod }, { data: wzBefore }, { data: corrPeriod }, { data: corrBefore }] = await Promise.all([
       supabase.from('finished_goods').select('id,quantity_kg,received_date,production_batches(recipe_id,recipes(code,name))').gte('received_date',d1).lte('received_date',d2),
       supabase.from('finished_goods').select('id,quantity_kg,received_date,production_batches(recipe_id,recipes(code,name))').lt('received_date',d1),
@@ -236,13 +257,14 @@ export default function MagazynWG() {
     function rn(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.name:'?' }
     function rc(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.code:'?' }
     const keys=new Set(), boMap={}, przychMap={}, rozchMap={}, korMap={}, nameMap={}, codeMap={}
-    for (const p of (przyjBefore||[])) { const k=rk(p); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)+parseFloat(p.quantity_kg); nameMap[k]=rn(p); codeMap[k]=rc(p) }
+    const boValMap={}, przychValMap={}, rozchValMap={}
+    for (const p of (przyjBefore||[])) { const k=rk(p); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)+parseFloat(p.quantity_kg); boValMap[k]=(boValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
     for (const w of (wzBefore||[])) { const k=rk(w); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)-parseFloat(w.quantity_kg); nameMap[k]=rn(w); codeMap[k]=rc(w) }
     for (const c of (corrBefore||[])) { const k=rk(c); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)+parseFloat(c.delta_kg); nameMap[k]=rn(c); codeMap[k]=rc(c) }
-    for (const p of (przyjecia||[])) { const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); nameMap[k]=rn(p); codeMap[k]=rc(p) }
+    for (const p of (przyjecia||[])) { const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
     for (const w of (wzPeriod||[])) { const k=rk(w); if(!k) continue; keys.add(k); rozchMap[k]=(rozchMap[k]||0)+parseFloat(w.quantity_kg); nameMap[k]=rn(w); codeMap[k]=rc(w) }
     for (const c of (corrPeriod||[])) { const k=rk(c); if(!k) continue; keys.add(k); korMap[k]=(korMap[k]||0)+parseFloat(c.delta_kg); nameMap[k]=rn(c); codeMap[k]=rc(c) }
-    const bilans=[...keys].map(k=>{const bo=parseFloat(Math.max(0,boMap[k]||0).toFixed(3)); const przych=parseFloat((przychMap[k]||0).toFixed(3)); const kor=parseFloat((korMap[k]||0).toFixed(3)); const rozch=parseFloat((rozchMap[k]||0).toFixed(3)); const bz=parseFloat(Math.max(0,bo+przych+kor-rozch).toFixed(3)); return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz}}).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0).sort((a,b)=>a.code.localeCompare(b.code))
+    const bilans=[...keys].map(k=>{const bo=parseFloat(Math.max(0,boMap[k]||0).toFixed(3)); const przych=parseFloat((przychMap[k]||0).toFixed(3)); const kor=parseFloat((korMap[k]||0).toFixed(3)); const rozch=parseFloat((rozchMap[k]||0).toFixed(3)); const bz=parseFloat(Math.max(0,bo+przych+kor-rozch).toFixed(3)); const boVal=parseFloat((boValMap[k]||0).toFixed(2)); const przychVal=parseFloat((przychValMap[k]||0).toFixed(2)); const bzVal=parseFloat(Math.max(0,boVal+przychVal).toFixed(2)); return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz,boVal,przychVal,bzVal}}).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0).sort((a,b)=>a.code.localeCompare(b.code))
     setBilansData(bilans); setBilansLoading(false)
   }
 
@@ -310,6 +332,9 @@ export default function MagazynWG() {
                     <th style={{ textAlign: 'right', background: '#FFF8E1', color: '#E65100' }}>Korekty (kg)</th>
                     <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00' }}>Rozchód (kg)</th>
                     <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>BZ (kg)</th>
+                    <th style={{ textAlign: 'right', background: '#E6F1FB', color: '#0C447C' }}>Wart. BO (zł)</th>
+                    <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Wart. przychodu (zł)</th>
+                    <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>Wart. BZ (zł)</th>
                   </tr></thead>
                   <tbody>
                     {bilansData.map(r => (
@@ -321,6 +346,9 @@ export default function MagazynWG() {
                         <td style={{ textAlign: 'right', color: r.kor < 0 ? '#A32D2D' : r.kor > 0 ? '#085041' : '#888' }}>{r.kor !== 0 ? (r.kor > 0 ? '+' : '') + r.kor.toFixed(3) : '—'}</td>
                         <td style={{ textAlign: 'right', color: '#7B3F00', fontWeight: 500 }}>{r.rozch.toFixed(3)}</td>
                         <td style={{ textAlign: 'right', color: '#3C3489', fontWeight: 700 }}>{r.bz.toFixed(3)}</td>
+                        <td style={{ textAlign: 'right', color: '#0C447C', fontSize: 11 }}>{r.boVal > 0 ? r.boVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+                        <td style={{ textAlign: 'right', color: '#085041', fontSize: 11, fontWeight: 500 }}>{r.przychVal > 0 ? r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+                        <td style={{ textAlign: 'right', color: '#3C3489', fontSize: 11, fontWeight: 700 }}>{r.bzVal > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                       </tr>
                     ))}
                     <tr style={{ background: '#F1EFE8' }}>
@@ -330,6 +358,9 @@ export default function MagazynWG() {
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#E65100' }}>{bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00' }}>{bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#0C447C' }}>{bilansData.reduce((s,r)=>s+r.boVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
                   </tbody>
                 </table>
