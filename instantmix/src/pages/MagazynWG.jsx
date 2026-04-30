@@ -74,7 +74,6 @@ export default function MagazynWG() {
       supabase.from('orders').select('id,order_number,client,quantity_kg,recipe_id,recipes(name,code)').in('status', ['w_realizacji', 'zrealizowane']).order('ship_date'),
       supabase.from('fg_corrections').select('*').order('created_at', { ascending: false }),
     ])
-    // Pobierz wartości surowców per partia produkcyjna
     const batchIds = (g || []).map(x => x.production_batch_id).filter(Boolean)
     let bvMap = {}
     if (batchIds.length > 0) {
@@ -85,9 +84,8 @@ export default function MagazynWG() {
       for (const item of (pbi || [])) {
         const price = parseFloat(item.ingredient_batches?.unit_price_pln || 0)
         const qty = parseFloat(item.quantity_used_kg || 0)
-        const val = price * qty
         if (!bvMap[item.production_batch_id]) bvMap[item.production_batch_id] = 0
-        bvMap[item.production_batch_id] += val
+        bvMap[item.production_batch_id] += price * qty
       }
     }
     setBatchValues(bvMap)
@@ -225,8 +223,7 @@ export default function MagazynWG() {
     setBilansLoading(true); setShowBilans(true)
     const d1=bilansDat1, d2=bilansDat2
 
-    // Pobierz wartości surowców per partia
-    const { data: allGoods } = await supabase.from('finished_goods').select('id,production_batch_id')
+    const { data: allGoods } = await supabase.from('finished_goods').select('id,production_batch_id,quantity_kg')
     const allBatchIds = (allGoods||[]).map(x=>x.production_batch_id).filter(Boolean)
     const bvLocal = {}
     if (allBatchIds.length > 0) {
@@ -238,9 +235,7 @@ export default function MagazynWG() {
         bvLocal[item.production_batch_id] += price * qty
       }
     }
-    // Mapa finished_good_id -> batch_value (proporcjonalnie do ilości)
     const fgValueMap = {}
-    const fgQtyMap = {}
     for (const fg of (allGoods||[])) {
       fgValueMap[fg.id] = bvLocal[fg.production_batch_id] || 0
     }
@@ -253,27 +248,86 @@ export default function MagazynWG() {
       supabase.from('fg_corrections').select('delta_kg,event_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').gte('event_date',d1).lte('event_date',d2),
       supabase.from('fg_corrections').select('delta_kg,event_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').lt('event_date',d1),
     ])
+
     function rk(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.code+'||'+r.name:null }
     function rn(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.name:'?' }
     function rc(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.code:'?' }
+
     const keys=new Set(), boMap={}, przychMap={}, rozchMap={}, korMap={}, nameMap={}, codeMap={}
     const boValMap={}, przychValMap={}, rozchValMap={}
+
     for (const p of (przyjBefore||[])) { const k=rk(p); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)+parseFloat(p.quantity_kg); boValMap[k]=(boValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
     for (const w of (wzBefore||[])) { const k=rk(w); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)-parseFloat(w.quantity_kg); nameMap[k]=rn(w); codeMap[k]=rc(w) }
     for (const c of (corrBefore||[])) { const k=rk(c); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)+parseFloat(c.delta_kg); nameMap[k]=rn(c); codeMap[k]=rc(c) }
     for (const p of (przyjecia||[])) { const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
-    for (const w of (wzPeriod||[])) { const k=rk(w); if(!k) continue; keys.add(k); rozchMap[k]=(rozchMap[k]||0)+parseFloat(w.quantity_kg); nameMap[k]=rn(w); codeMap[k]=rc(w) }
+    for (const w of (wzPeriod||[])) {
+      const k=rk(w); if(!k) continue; keys.add(k)
+      rozchMap[k]=(rozchMap[k]||0)+parseFloat(w.quantity_kg)
+      // Wartość rozchodu proporcjonalna do wartości partii
+      const fgId = w.finished_good_id
+      const fgVal = fgValueMap[fgId]||0
+      const fgOrigKg = (allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      const propVal = fgOrigKg > 0 ? (parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal : 0
+      rozchValMap[k]=(rozchValMap[k]||0)+propVal
+      nameMap[k]=rn(w); codeMap[k]=rc(w)
+    }
     for (const c of (corrPeriod||[])) { const k=rk(c); if(!k) continue; keys.add(k); korMap[k]=(korMap[k]||0)+parseFloat(c.delta_kg); nameMap[k]=rn(c); codeMap[k]=rc(c) }
-    const bilans=[...keys].map(k=>{const bo=parseFloat(Math.max(0,boMap[k]||0).toFixed(3)); const przych=parseFloat((przychMap[k]||0).toFixed(3)); const kor=parseFloat((korMap[k]||0).toFixed(3)); const rozch=parseFloat((rozchMap[k]||0).toFixed(3)); const bz=parseFloat(Math.max(0,bo+przych+kor-rozch).toFixed(3)); const boVal=parseFloat((boValMap[k]||0).toFixed(2)); const przychVal=parseFloat((przychValMap[k]||0).toFixed(2)); const bzVal=parseFloat(Math.max(0,boVal+przychVal).toFixed(2)); return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz,boVal,przychVal,bzVal}}).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0).sort((a,b)=>a.code.localeCompare(b.code))
+
+    const bilans=[...keys].map(k=>{
+      const bo=parseFloat(Math.max(0,boMap[k]||0).toFixed(3))
+      const przych=parseFloat((przychMap[k]||0).toFixed(3))
+      const kor=parseFloat((korMap[k]||0).toFixed(3))
+      const rozch=parseFloat((rozchMap[k]||0).toFixed(3))
+      const bz=parseFloat(Math.max(0,bo+przych+kor-rozch).toFixed(3))
+      const boVal=parseFloat((boValMap[k]||0).toFixed(2))
+      const przychVal=parseFloat((przychValMap[k]||0).toFixed(2))
+      const rozchVal=parseFloat((rozchValMap[k]||0).toFixed(2))
+      const bzVal=parseFloat(Math.max(0,boVal+przychVal-rozchVal).toFixed(2))
+      return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz,boVal,przychVal,rozchVal,bzVal}
+    }).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0).sort((a,b)=>a.code.localeCompare(b.code))
+
     setBilansData(bilans); setBilansLoading(false)
   }
 
   function printBilans() {
     const d1str=new Date(bilansDat1).toLocaleDateString('pl-PL'), d2str=new Date(bilansDat2).toLocaleDateString('pl-PL')
     const fmt2=(v)=>v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})
-    const rowsHtml=bilansData.map((r,i)=>`<tr><td>${i+1}</td><td style="font-family:monospace;font-size:8px">${r.code}</td><td>${r.name}</td><td style="text-align:right">${r.bo.toFixed(3)}</td><td style="text-align:right;color:#0C447C">${r.boVal>0?fmt2(r.boVal):'—'}</td><td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td><td style="text-align:right;color:#085041">${r.przychVal>0?fmt2(r.przychVal):'—'}</td><td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'}">${r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td><td style="text-align:right;color:#7B3F00">${r.rozch.toFixed(3)}</td><td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz.toFixed(3)}</td><td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz>0?fmt2(r.bzVal):'—'}</td></tr>`).join('')
-    const sumaHtml=`<tr class="total"><td colspan="3" style="text-align:right">SUMA:</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td><td style="text-align:right">${fmt2(bilansData.reduce((s,r)=>s+r.boVal,0))}</td><td style="text-align:right;color:#085041">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td><td style="text-align:right;color:#085041">${fmt2(bilansData.reduce((s,r)=>s+r.przychVal,0))}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td><td style="text-align:right;color:#7B3F00">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td><td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td><td style="text-align:right;font-weight:bold">${fmt2(bilansData.reduce((s,r)=>s+r.bzVal,0))}</td></tr>`
-    const html=`<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Bilans Magazyn Instant</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:9px;padding:14px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}.company{font-size:15px;font-weight:bold;color:#0F6E56}table{width:100%;border-collapse:collapse;margin-bottom:10px}th{background:#0F6E56;color:#fff;padding:4px 5px;border:1px solid #085041;font-size:7px;text-align:left}td{padding:3px 5px;border:1px solid #D3D1C7;font-size:8px}tr:nth-child(even) td{background:#FAFAF8}.total td{background:#E1F5EE!important;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1.5px solid #333;margin-top:24px;margin-bottom:4px}.sig-label{font-size:8px;color:#888;text-transform:uppercase}@media print{@page{margin:8mm;size:A4 landscape}}</style></head><body><div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:12px;font-weight:bold;margin-top:3px">Bilans Magazynu Instant — Wyroby Gotowe</div><div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Okres: ${d1str} — ${d2str}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wydrukował: ${profile?.full_name||'—'}</div></div><table><thead><tr><th style="width:18px">Lp.</th><th style="width:55px">Kod</th><th>Nazwa produktu</th><th style="width:55px;text-align:right">BO (kg)</th><th style="width:65px;text-align:right">Wart. BO (zł)</th><th style="width:60px;text-align:right">Przychód (kg)</th><th style="width:70px;text-align:right">Wart. przych. (zł)</th><th style="width:55px;text-align:right">Korekty (kg)</th><th style="width:60px;text-align:right">Rozchód (kg)</th><th style="width:55px;text-align:right">BZ (kg)</th><th style="width:65px;text-align:right">Wart. BZ (zł)</th></tr></thead><tbody>${rowsHtml}${sumaHtml}</tbody></table><div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Weryfikował</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div><script>window.onload=function(){window.print()}</script></body></html>`
+    const rowsHtml=bilansData.map((r,i)=>`<tr>
+      <td>${i+1}</td><td style="font-family:monospace;font-size:8px">${r.code}</td><td>${r.name}</td>
+      <td style="text-align:right">${r.bo.toFixed(3)}</td>
+      <td style="text-align:right;color:#0C447C">${r.boVal>0?fmt2(r.boVal):'—'}</td>
+      <td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td>
+      <td style="text-align:right;color:#085041">${r.przychVal>0?fmt2(r.przychVal):'—'}</td>
+      <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'}">${r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td>
+      <td style="text-align:right;color:#7B3F00">${r.rozch.toFixed(3)}</td>
+      <td style="text-align:right;color:#7B3F00">${r.rozchVal>0?fmt2(r.rozchVal):'—'}</td>
+      <td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz.toFixed(3)}</td>
+      <td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz>0?fmt2(r.bzVal):'—'}</td>
+    </tr>`).join('')
+    const sumaHtml=`<tr class="total">
+      <td colspan="3" style="text-align:right">SUMA:</td>
+      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td>
+      <td style="text-align:right">${fmt2(bilansData.reduce((s,r)=>s+r.boVal,0))}</td>
+      <td style="text-align:right;color:#085041">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
+      <td style="text-align:right;color:#085041">${fmt2(bilansData.reduce((s,r)=>s+r.przychVal,0))}</td>
+      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
+      <td style="text-align:right;color:#7B3F00">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
+      <td style="text-align:right;color:#7B3F00">${fmt2(bilansData.reduce((s,r)=>s+r.rozchVal,0))}</td>
+      <td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
+      <td style="text-align:right;font-weight:bold">${fmt2(bilansData.reduce((s,r)=>s+r.bzVal,0))}</td>
+    </tr>`
+    const html=`<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Bilans Magazyn Instant</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:9px;padding:14px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}.company{font-size:15px;font-weight:bold;color:#0F6E56}table{width:100%;border-collapse:collapse;margin-bottom:10px}th{background:#0F6E56;color:#fff;padding:4px 5px;border:1px solid #085041;font-size:7px;text-align:left}td{padding:3px 5px;border:1px solid #D3D1C7;font-size:8px}tr:nth-child(even) td{background:#FAFAF8}.total td{background:#E1F5EE!important;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1.5px solid #333;margin-top:24px;margin-bottom:4px}.sig-label{font-size:8px;color:#888;text-transform:uppercase}@media print{@page{margin:8mm;size:A4 landscape}}</style></head><body>
+    <div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:12px;font-weight:bold;margin-top:3px">Bilans Magazynu Instant — Wyroby Gotowe</div><div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Okres: ${d1str} — ${d2str}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wydrukował: ${profile?.full_name||'—'}</div></div>
+    <table><thead><tr>
+      <th style="width:18px">Lp.</th><th style="width:55px">Kod</th><th>Nazwa produktu</th>
+      <th style="width:48px;text-align:right">BO (kg)</th><th style="width:58px;text-align:right">Wart. BO (zł)</th>
+      <th style="width:55px;text-align:right">Przychód (kg)</th><th style="width:60px;text-align:right">Wart. przych. (zł)</th>
+      <th style="width:50px;text-align:right">Korekty (kg)</th>
+      <th style="width:52px;text-align:right">Rozchód (kg)</th><th style="width:60px;text-align:right">Wart. rozch. (zł)</th>
+      <th style="width:48px;text-align:right">BZ (kg)</th><th style="width:60px;text-align:right">Wart. BZ (zł)</th>
+    </tr></thead><tbody>${rowsHtml}${sumaHtml}</tbody></table>
+    <div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Weryfikował</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div>
+    <script>window.onload=function(){window.print()}</script></body></html>`
     const win=window.open('','_blank'); win.document.write(html); win.document.close()
   }
 
@@ -325,7 +379,7 @@ export default function MagazynWG() {
               <div className="muted" style={{ padding: 12 }}>Brak ruchów w wybranym okresie.</div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ minWidth: 700 }}>
+                <table style={{ minWidth: 800 }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}><tr>
                     <th>Kod</th><th>Nazwa produktu</th>
                     <th style={{ textAlign: 'right', background: '#E6F1FB', color: '#0C447C' }}>BO (kg)</th>
@@ -334,6 +388,7 @@ export default function MagazynWG() {
                     <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Wart. przychodu (zł)</th>
                     <th style={{ textAlign: 'right', background: '#FFF8E1', color: '#E65100' }}>Korekty (kg)</th>
                     <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00' }}>Rozchód (kg)</th>
+                    <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00', fontSize: 10 }}>Wart. rozch. (zł)</th>
                     <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>BZ (kg)</th>
                     <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>Wart. BZ (zł)</th>
                   </tr></thead>
@@ -348,6 +403,7 @@ export default function MagazynWG() {
                         <td style={{ textAlign: 'right', color: '#085041', fontSize: 11, fontWeight: 500 }}>{r.przychVal > 0 ? r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                         <td style={{ textAlign: 'right', color: r.kor < 0 ? '#A32D2D' : r.kor > 0 ? '#085041' : '#888' }}>{r.kor !== 0 ? (r.kor > 0 ? '+' : '') + r.kor.toFixed(3) : '—'}</td>
                         <td style={{ textAlign: 'right', color: '#7B3F00', fontWeight: 500 }}>{r.rozch.toFixed(3)}</td>
+                        <td style={{ textAlign: 'right', color: '#7B3F00', fontSize: 11 }}>{r.rozchVal > 0 ? r.rozchVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                         <td style={{ textAlign: 'right', color: '#3C3489', fontWeight: 700 }}>{r.bz.toFixed(3)}</td>
                         <td style={{ textAlign: 'right', color: '#3C3489', fontSize: 11, fontWeight: 700 }}>{r.bz > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                       </tr>
@@ -360,6 +416,7 @@ export default function MagazynWG() {
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#E65100' }}>{bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00' }}>{bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00', fontSize: 11 }}>{bilansData.reduce((s,r)=>s+r.rozchVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
@@ -390,7 +447,6 @@ export default function MagazynWG() {
         ))}
       </div>
 
-      {/* Główna tabela */}
       <div style={{ background: '#fff', border: '0.5px solid #D3D1C7', borderRadius: 8, overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 320px)' }}>
         <table style={{ width: '100%' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}><tr>
@@ -404,7 +460,7 @@ export default function MagazynWG() {
             <th style={{ textAlign: 'center' }}>Partii</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: '#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#888' }}>Ładowanie...</td></tr>}
             {!loading && filteredProducts.map(p => {
               const isExpanded = expandedProduct === p.recipe_code
               const available = parseFloat(p.available_kg)
@@ -437,7 +493,7 @@ export default function MagazynWG() {
 
                   {isExpanded && (
                     <tr>
-                      <td colSpan={8} style={{ padding: 0, background: '#F9F8F5' }}>
+                      <td colSpan={9} style={{ padding: 0, background: '#F9F8F5' }}>
                         <div style={{ padding: '8px 16px 12px 40px' }}>
                           <div style={{ fontSize: 12, fontWeight: 500, color: '#0F6E56', marginBottom: 8 }}>Partie — {p.recipe_name}</div>
                           <table style={{ width: 'auto', minWidth: 700 }}>
@@ -495,7 +551,7 @@ export default function MagazynWG() {
                                     </tr>
                                     {gExpanded && (
                                       <tr>
-                                        <td colSpan={10} style={{ padding: '6px 8px 8px 48px', background: '#F1EFE8' }}>
+                                        <td colSpan={11} style={{ padding: '6px 8px 8px 48px', background: '#F1EFE8' }}>
                                           {gCorrs.length > 0 && (
                                             <div style={{ marginBottom: 8 }}>
                                               <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: '#E65100' }}>Historia korekt</div>
@@ -536,7 +592,7 @@ export default function MagazynWG() {
                 </React.Fragment>
               )
             })}
-            {!loading && filteredProducts.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: '#888' }}>Brak towarów na magazynie</td></tr>}
+            {!loading && filteredProducts.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#888' }}>Brak towarów na magazynie</td></tr>}
           </tbody>
         </table>
       </div>
