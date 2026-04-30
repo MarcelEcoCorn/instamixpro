@@ -271,7 +271,18 @@ export default function MagazynWG() {
       rozchValMap[k]=(rozchValMap[k]||0)+propVal
       nameMap[k]=rn(w); codeMap[k]=rc(w)
     }
-    for (const c of (corrPeriod||[])) { const k=rk(c); if(!k) continue; keys.add(k); korMap[k]=(korMap[k]||0)+parseFloat(c.delta_kg); nameMap[k]=rn(c); codeMap[k]=rc(c) }
+    // Wartość korekt proporcjonalna do wartości partii
+    const korValMap={}
+    for (const c of (corrPeriod||[])) {
+      const k=rk(c); if(!k) continue; keys.add(k)
+      korMap[k]=(korMap[k]||0)+parseFloat(c.delta_kg)
+      const fgId = c.finished_good_id
+      const fgVal = fgValueMap[fgId]||0
+      const fgOrigKg = (allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      const propVal = fgOrigKg > 0 ? (parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal : 0
+      korValMap[k]=(korValMap[k]||0)+propVal
+      nameMap[k]=rn(c); codeMap[k]=rc(c)
+    }
 
     const bilans=[...keys].map(k=>{
       const bo=parseFloat(Math.max(0,boMap[k]||0).toFixed(3))
@@ -282,8 +293,9 @@ export default function MagazynWG() {
       const boVal=parseFloat((boValMap[k]||0).toFixed(2))
       const przychVal=parseFloat((przychValMap[k]||0).toFixed(2))
       const rozchVal=parseFloat((rozchValMap[k]||0).toFixed(2))
-      const bzVal=parseFloat(Math.max(0,boVal+przychVal-rozchVal).toFixed(2))
-      return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz,boVal,przychVal,rozchVal,bzVal}
+      const korVal=parseFloat((korValMap[k]||0).toFixed(2))
+      const bzVal=parseFloat(Math.max(0,boVal+przychVal+korVal-rozchVal).toFixed(2))
+      return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz,boVal,przychVal,korVal,rozchVal,bzVal}
     }).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0).sort((a,b)=>a.code.localeCompare(b.code))
 
     setBilansData(bilans); setBilansLoading(false)
@@ -299,6 +311,7 @@ export default function MagazynWG() {
       <td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td>
       <td style="text-align:right;color:#085041">${r.przychVal>0?fmt2(r.przychVal):'—'}</td>
       <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'}">${r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td>
+      <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#E65100'}">${r.kor!==0?fmt2(r.korVal):'—'}</td>
       <td style="text-align:right;color:#7B3F00">${r.rozch.toFixed(3)}</td>
       <td style="text-align:right;color:#7B3F00">${r.rozchVal>0?fmt2(r.rozchVal):'—'}</td>
       <td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz.toFixed(3)}</td>
@@ -311,6 +324,7 @@ export default function MagazynWG() {
       <td style="text-align:right;color:#085041">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
       <td style="text-align:right;color:#085041">${fmt2(bilansData.reduce((s,r)=>s+r.przychVal,0))}</td>
       <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
+      <td style="text-align:right">${fmt2(bilansData.reduce((s,r)=>s+r.korVal,0))}</td>
       <td style="text-align:right;color:#7B3F00">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
       <td style="text-align:right;color:#7B3F00">${fmt2(bilansData.reduce((s,r)=>s+r.rozchVal,0))}</td>
       <td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
@@ -322,8 +336,9 @@ export default function MagazynWG() {
       <th style="width:18px">Lp.</th><th style="width:55px">Kod</th><th>Nazwa produktu</th>
       <th style="width:48px;text-align:right">BO (kg)</th><th style="width:58px;text-align:right">Wart. BO (zł)</th>
       <th style="width:55px;text-align:right">Przychód (kg)</th><th style="width:60px;text-align:right">Wart. przych. (zł)</th>
-      <th style="width:50px;text-align:right">Korekty (kg)</th>
-      <th style="width:52px;text-align:right">Rozchód (kg)</th><th style="width:60px;text-align:right">Wart. rozch. (zł)</th>
+      <th style="width:48px;text-align:right">Korekty (kg)</th>
+      <th style="width:56px;text-align:right">Wart. kor. (zł)</th>
+      <th style="width:50px;text-align:right">Rozchód (kg)</th><th style="width:60px;text-align:right">Wart. rozch. (zł)</th>
       <th style="width:48px;text-align:right">BZ (kg)</th><th style="width:60px;text-align:right">Wart. BZ (zł)</th>
     </tr></thead><tbody>${rowsHtml}${sumaHtml}</tbody></table>
     <div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Weryfikował</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div>
@@ -387,6 +402,7 @@ export default function MagazynWG() {
                     <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Przychód (kg)</th>
                     <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Wart. przychodu (zł)</th>
                     <th style={{ textAlign: 'right', background: '#FFF8E1', color: '#E65100' }}>Korekty (kg)</th>
+                    <th style={{ textAlign: 'right', background: '#FFF8E1', color: '#E65100', fontSize: 10 }}>Wart. kor. (zł)</th>
                     <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00' }}>Rozchód (kg)</th>
                     <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00', fontSize: 10 }}>Wart. rozch. (zł)</th>
                     <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>BZ (kg)</th>
@@ -402,6 +418,7 @@ export default function MagazynWG() {
                         <td style={{ textAlign: 'right', color: '#085041', fontWeight: 500 }}>{r.przych.toFixed(3)}</td>
                         <td style={{ textAlign: 'right', color: '#085041', fontSize: 11, fontWeight: 500 }}>{r.przychVal > 0 ? r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                         <td style={{ textAlign: 'right', color: r.kor < 0 ? '#A32D2D' : r.kor > 0 ? '#085041' : '#888' }}>{r.kor !== 0 ? (r.kor > 0 ? '+' : '') + r.kor.toFixed(3) : '—'}</td>
+                        <td style={{ textAlign: 'right', color: r.korVal < 0 ? '#A32D2D' : '#E65100', fontSize: 11 }}>{r.kor !== 0 ? r.korVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                         <td style={{ textAlign: 'right', color: '#7B3F00', fontWeight: 500 }}>{r.rozch.toFixed(3)}</td>
                         <td style={{ textAlign: 'right', color: '#7B3F00', fontSize: 11 }}>{r.rozchVal > 0 ? r.rozchVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
                         <td style={{ textAlign: 'right', color: '#3C3489', fontWeight: 700 }}>{r.bz.toFixed(3)}</td>
@@ -415,6 +432,7 @@ export default function MagazynWG() {
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#E65100' }}>{bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#E65100', fontSize: 11 }}>{bilansData.reduce((s,r)=>s+r.korVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00' }}>{bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00', fontSize: 11 }}>{bilansData.reduce((s,r)=>s+r.rozchVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
