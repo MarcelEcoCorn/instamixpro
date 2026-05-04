@@ -264,7 +264,7 @@ export default function MagazynWG() {
       const fgId=w.finished_good_id
       const fgVal=fgValueMap[fgId]||0
       const fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal=fgOrigKg>0?(parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal:0
+      const propVal=fgOrigKg>0?Math.round((parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0
       wzBeforeValMap[k]=(wzBeforeValMap[k]||0)+propVal
       nameMap[k]=rn(w); codeMap[k]=rc(w)
     }
@@ -274,7 +274,7 @@ export default function MagazynWG() {
       const fgId=c.finished_good_id
       const fgVal=fgValueMap[fgId]||0
       const fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal=fgOrigKg>0?(parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal:0
+      const propVal=fgOrigKg>0?Math.round((parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0
       corrBeforeValMap[k]=(corrBeforeValMap[k]||0)+propVal
       nameMap[k]=rn(c); codeMap[k]=rc(c)
     }
@@ -296,7 +296,7 @@ export default function MagazynWG() {
       const fgId = w.finished_good_id
       const fgVal = fgValueMap[fgId]||0
       const fgOrigKg = (allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal = fgOrigKg > 0 ? (parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal : 0
+      const propVal = fgOrigKg > 0 ? Math.round((parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal*100)/100 : 0
       rozchValMap[k]=(rozchValMap[k]||0)+propVal
       nameMap[k]=rn(w); codeMap[k]=rc(w)
     }
@@ -308,7 +308,7 @@ export default function MagazynWG() {
       const fgId = c.finished_good_id
       const fgVal = fgValueMap[fgId]||0
       const fgOrigKg = (allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal = fgOrigKg > 0 ? (parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal : 0
+      const propVal = fgOrigKg > 0 ? Math.round((parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal*100)/100 : 0
       korValMap[k]=(korValMap[k]||0)+propVal
       nameMap[k]=rn(c); codeMap[k]=rc(c)
     }
@@ -539,7 +539,7 @@ export default function MagazynWG() {
                           const origKg = parseFloat(g.original_kg || 0)
                           const availKg = parseFloat(g.available_kg || 0)
                           if (total <= 0 || origKg <= 0) return s
-                          return s + (availKg / origKg) * total
+                          return s + Math.round((availKg / origKg) * total * 100) / 100
                         }, 0)
                         return v > 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
                       })()}
@@ -596,7 +596,7 @@ export default function MagazynWG() {
                                           const origKg = parseFloat(g.original_kg || 0)
                                           const availKg = parseFloat(g.available_kg || 0)
                                           if (total <= 0 || origKg <= 0) return '—'
-                                          const v = (availKg / origKg) * total
+                                          const v = Math.round((availKg / origKg) * total * 100) / 100
                                           return v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł'
                                         })()}
                                       </td>
