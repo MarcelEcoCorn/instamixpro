@@ -325,7 +325,7 @@ export default function MagazynWG() {
       const korVal=parseFloat((korValMap[k]||0).toFixed(2))
       const bzVal=parseFloat(Math.max(0,boVal+przychVal+korVal-rozchVal).toFixed(2))
       return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz,boVal,przychVal,korVal,rozchVal,bzVal}
-    }).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0).sort((a,b)=>a.code.localeCompare(b.code))
+    }).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0||r.boVal>0).sort((a,b)=>a.code.localeCompare(b.code))
 
     setBilansData(bilans); setBilansLoading(false)
   }
@@ -359,6 +359,7 @@ export default function MagazynWG() {
       <td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
       <td style="text-align:right;font-weight:bold">${fmt2(bilansData.reduce((s,r)=>s+r.bzVal,0))}</td>
     </tr>`
+    const emptyRow = bilansData.length === 0 ? `<tr><td colspan="13" style="text-align:center;padding:16px;color:#888;font-style:italic">Brak ruchów magazynowych w wybranym okresie</td></tr>` : ''
     const html=`<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Bilans Magazyn Instant</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:9px;padding:14px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}.company{font-size:15px;font-weight:bold;color:#0F6E56}table{width:100%;border-collapse:collapse;margin-bottom:10px}th{background:#0F6E56;color:#fff;padding:4px 5px;border:1px solid #085041;font-size:7px;text-align:left}td{padding:3px 5px;border:1px solid #D3D1C7;font-size:8px}tr:nth-child(even) td{background:#FAFAF8}.total td{background:#E1F5EE!important;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1.5px solid #333;margin-top:24px;margin-bottom:4px}.sig-label{font-size:8px;color:#888;text-transform:uppercase}@media print{@page{margin:8mm;size:A4 landscape}}</style></head><body>
     <div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:12px;font-weight:bold;margin-top:3px">Bilans Magazynu Instant — Wyroby Gotowe</div><div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Okres: ${d1str} — ${d2str}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wydrukował: ${profile?.full_name||'—'}</div></div>
     <table><thead><tr>
@@ -369,7 +370,7 @@ export default function MagazynWG() {
       <th style="width:56px;text-align:right">Wart. kor. (zł)</th>
       <th style="width:50px;text-align:right">Rozchód (kg)</th><th style="width:60px;text-align:right">Wart. rozch. (zł)</th>
       <th style="width:48px;text-align:right">BZ (kg)</th><th style="width:60px;text-align:right">Wart. BZ (zł)</th>
-    </tr></thead><tbody>${rowsHtml}${sumaHtml}</tbody></table>
+    </tr></thead><tbody>${bilansData.length === 0 ? emptyRow : rowsHtml+sumaHtml}</tbody></table>
     <div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Weryfikował</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div>
     <script>window.onload=function(){window.print()}</script></body></html>`
     const win=window.open('','_blank'); win.document.write(html); win.document.close()
@@ -413,14 +414,25 @@ export default function MagazynWG() {
           <div style={{ paddingTop: 20, color: '#888' }}>→</div>
           <div><label>Do</label><input type="date" value={bilansDat2} onChange={e => { setBilansDat2(e.target.value); setBilansMode('custom') }} /></div>
           <button className="btn btn-primary btn-sm" onClick={obliczBilans} style={{ alignSelf: 'flex-end' }}>Oblicz bilans</button>
-          {showBilans && bilansData.length > 0 && <button className="btn btn-sm" onClick={printBilans} style={{ alignSelf: 'flex-end' }}>Drukuj bilans</button>}
+          {showBilans && !bilansLoading && <button className="btn btn-sm" onClick={printBilans} style={{ alignSelf: 'flex-end' }}>Drukuj bilans</button>}
         </div>
         {showBilans && (
           <div style={{ marginTop: 12 }}>
             {bilansLoading ? (
               <div style={{ textAlign: 'center', padding: 16 }}><span className="spinner" /> Obliczam bilans...</div>
             ) : bilansData.length === 0 ? (
-              <div className="muted" style={{ padding: 12 }}>Brak ruchów w wybranym okresie.</div>
+              <div>
+                <div className="muted" style={{ padding: '8px 0 12px' }}>Brak ruchów magazynowych w wybranym okresie.</div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:24, marginTop:8 }}>
+                  {['Sporządził','Weryfikował','Zatwierdził'].map(l => (
+                    <div key={l}>
+                      <div style={{ fontSize:11, color:'#888', textTransform:'uppercase', marginBottom:20 }}>{l}</div>
+                      <div style={{ borderBottom:'1px solid #333', marginBottom:4 }}></div>
+                      <div style={{ fontSize:10, color:'#888' }}>Imię, nazwisko i podpis</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ minWidth: 800 }}>
