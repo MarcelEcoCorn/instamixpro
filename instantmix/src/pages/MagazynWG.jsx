@@ -256,9 +256,38 @@ export default function MagazynWG() {
     const keys=new Set(), boMap={}, przychMap={}, rozchMap={}, korMap={}, nameMap={}, codeMap={}
     const boValMap={}, przychValMap={}, rozchValMap={}
 
-    for (const p of (przyjBefore||[])) { const k=rk(p); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)+parseFloat(p.quantity_kg); boValMap[k]=(boValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
-    for (const w of (wzBefore||[])) { const k=rk(w); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)-parseFloat(w.quantity_kg); nameMap[k]=rn(w); codeMap[k]=rc(w) }
-    for (const c of (corrBefore||[])) { const k=rk(c); if(!k) continue; keys.add(k); boMap[k]=(boMap[k]||0)+parseFloat(c.delta_kg); nameMap[k]=rn(c); codeMap[k]=rc(c) }
+    // Buduj mapy wartości dla WZ i korekt przed d1 (do odjęcia od BO)
+    const wzBeforeValMap={}, corrBeforeValMap={}
+    for (const w of (wzBefore||[])) {
+      const k=rk(w); if(!k) continue; keys.add(k)
+      boMap[k]=(boMap[k]||0)-parseFloat(w.quantity_kg)
+      const fgId=w.finished_good_id
+      const fgVal=fgValueMap[fgId]||0
+      const fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      const propVal=fgOrigKg>0?(parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal:0
+      wzBeforeValMap[k]=(wzBeforeValMap[k]||0)+propVal
+      nameMap[k]=rn(w); codeMap[k]=rc(w)
+    }
+    for (const c of (corrBefore||[])) {
+      const k=rk(c); if(!k) continue; keys.add(k)
+      boMap[k]=(boMap[k]||0)+parseFloat(c.delta_kg)
+      const fgId=c.finished_good_id
+      const fgVal=fgValueMap[fgId]||0
+      const fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      const propVal=fgOrigKg>0?(parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal:0
+      corrBeforeValMap[k]=(corrBeforeValMap[k]||0)+propVal
+      nameMap[k]=rn(c); codeMap[k]=rc(c)
+    }
+    for (const p of (przyjBefore||[])) {
+      const k=rk(p); if(!k) continue; keys.add(k)
+      boMap[k]=(boMap[k]||0)+parseFloat(p.quantity_kg)
+      boValMap[k]=(boValMap[k]||0)+(fgValueMap[p.id]||0)
+      nameMap[k]=rn(p); codeMap[k]=rc(p)
+    }
+    // BO wartość = suma przyjęć przed d1 - rozchód (WZ) przed d1 + korekty przed d1
+    for (const k of Object.keys(boValMap)) {
+      boValMap[k] = Math.max(0, (boValMap[k]||0) - (wzBeforeValMap[k]||0) + (corrBeforeValMap[k]||0))
+    }
     for (const p of (przyjecia||[])) { const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
     for (const w of (wzPeriod||[])) {
       const k=rk(w); if(!k) continue; keys.add(k)
@@ -504,7 +533,16 @@ export default function MagazynWG() {
                       {available <= 0 && <span className="badge b-gray" style={{ marginLeft: 6, fontSize: 10 }}>Wydano</span>}
                     </td>
                     <td style={{ textAlign: 'right', fontSize: 12, color: '#3C3489' }}>
-                      {(() => { const v = goodsForProduct(p.recipe_code).reduce((s,g) => s + (batchValues[g.production_batch_id] || 0), 0); return v > 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—' })()}
+                      {(() => {
+                        const v = goodsForProduct(p.recipe_code).reduce((s,g) => {
+                          const total = batchValues[g.production_batch_id] || 0
+                          const origKg = parseFloat(g.original_kg || 0)
+                          const availKg = parseFloat(g.available_kg || 0)
+                          if (total <= 0 || origKg <= 0) return s
+                          return s + (availKg / origKg) * total
+                        }, 0)
+                        return v > 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
+                      })()}
                     </td>
                     <td style={{ textAlign: 'center', color: '#5F5E5A' }}>{p.batch_count}</td>
                   </tr>
@@ -553,7 +591,14 @@ export default function MagazynWG() {
                                         <span style={{ fontWeight: 700, color: avail <= 0 ? '#888' : '#0F6E56', fontSize: 12 }}>{fmt3(avail)}</span>
                                       </td>
                                       <td style={{ textAlign: 'right', fontSize: 11, color: '#3C3489' }}>
-                                        {batchValues[g.production_batch_id] ? batchValues[g.production_batch_id].toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'}
+                                        {(() => {
+                                          const total = batchValues[g.production_batch_id] || 0
+                                          const origKg = parseFloat(g.original_kg || 0)
+                                          const availKg = parseFloat(g.available_kg || 0)
+                                          if (total <= 0 || origKg <= 0) return '—'
+                                          const v = (availKg / origKg) * total
+                                          return v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł'
+                                        })()}
                                       </td>
                                       <td className="muted" style={{ fontSize: 11 }}>{g.location || '—'}</td>
                                       <td style={{ fontSize: 11 }}>
