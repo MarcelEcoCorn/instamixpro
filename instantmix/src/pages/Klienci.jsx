@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../App'
 
-const EMPTY_FORM = { number:'', name:'', notes:'', status:'aktywny' }
+const EMPTY_FORM = { number:'', name:'', notes:'', status:'aktywny', is_sample:false, last_sample_date:'' }
 const STATUS_KLIENTA = { aktywny:'Aktywny', oczekujacy:'Oczekujący', nieaktywny:'Nieaktywny' }
 const STATUS_COLORS = { aktywny:'b-ok', oczekujacy:'b-warn', nieaktywny:'b-gray' }
 
@@ -27,16 +27,19 @@ export default function Klienci() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('clients').select('*, recipes(id)').order('number')
+    const { data } = await supabase.from('clients').select('*, recipes(id)').order('name')
     setClients(data || [])
     setLoading(false)
   }
 
   const filtered = clients.filter(c => {
-    const matchQ = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.number.toLowerCase().includes(search.toLowerCase())
+    const matchQ = !search ||
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.number||'').toLowerCase().includes(search.toLowerCase())
     const matchStatus =
       filterStatus === 'aktywni' ? c.status !== 'archiwum' :
-      filterStatus === 'archiwum' ? c.status === 'archiwum' : true
+      filterStatus === 'archiwum' ? c.status === 'archiwum' :
+      filterStatus === 'probki' ? c.is_sample : true
     return matchQ && matchStatus
   })
 
@@ -44,24 +47,39 @@ export default function Klienci() {
 
   function openNew() { setForm(EMPTY_FORM); setEditMode(false); setError(''); setModal(true) }
   function openEdit(c) {
-    setForm({ id:c.id, number:c.number, name:c.name, notes:c.notes||'', status:c.status||'aktywny' })
+    setForm({
+      id: c.id,
+      number: c.number || '',
+      name: c.name,
+      notes: c.notes || '',
+      status: c.status || 'aktywny',
+      is_sample: c.is_sample || false,
+      last_sample_date: c.last_sample_date || '',
+    })
     setEditMode(true); setError(''); setModal(true)
   }
 
   async function save() {
-    if (!form.number) { setError('Numer klienta jest wymagany'); return }
     if (!form.name) { setError('Nazwa klienta jest wymagana'); return }
+    if (!form.is_sample && !form.number) { setError('Numer klienta jest wymagany (lub zaznacz jako Próbka)'); return }
     setSaving(true); setError('')
+    const payload = {
+      number: form.is_sample ? null : (form.number || null),
+      name: form.name,
+      notes: form.notes || null,
+      status: form.status,
+      is_sample: form.is_sample,
+      last_sample_date: form.last_sample_date || null,
+      updated_at: new Date().toISOString()
+    }
     if (editMode) {
-      const { error: err } = await supabase.from('clients').update({
-        number:form.number, name:form.name, notes:form.notes||null,
-        status:form.status, updated_at:new Date().toISOString()
-      }).eq('id', form.id)
+      const { error: err } = await supabase.from('clients').update(payload).eq('id', form.id)
       if (err) { setError(err.message); setSaving(false); return }
       await supabase.from('recipes').update({ client: form.name }).eq('client_id', form.id)
     } else {
       const { error: err } = await supabase.from('clients').insert({
-        number:form.number, name:form.name, notes:form.notes||null, status:form.status
+        ...payload,
+        created_at: new Date().toISOString()
       })
       if (err) { setError(err.message); setSaving(false); return }
     }
@@ -81,7 +99,13 @@ export default function Klienci() {
 
   const stats = {
     aktywni: clients.filter(c => c.status !== 'archiwum').length,
+    probki: clients.filter(c => c.is_sample && c.status !== 'archiwum').length,
     archiwum: clients.filter(c => c.status === 'archiwum').length,
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—'
+    return new Date(d).toLocaleDateString('pl-PL', { day:'2-digit', month:'2-digit', year:'numeric' })
   }
 
   return (
@@ -96,11 +120,12 @@ export default function Klienci() {
 
       <div className="stat-grid">
         <div className="stat-card"><div className="stat-label">Aktywnych klientów</div><div className="stat-val">{stats.aktywni}</div></div>
+        <div className="stat-card"><div className="stat-label">Tylko próbki</div><div className="stat-val" style={{ color:'#3C3489' }}>{stats.probki}</div></div>
         <div className="stat-card"><div className="stat-label">W archiwum</div><div className="stat-val" style={{ color:'#888' }}>{stats.archiwum}</div></div>
       </div>
 
       <div className="flex" style={{ marginBottom:10, gap:6 }}>
-        {[['aktywni','Aktywni'],['archiwum','Archiwum'],['wszystkie','Wszyscy']].map(([val,label]) => (
+        {[['aktywni','Aktywni'],['probki','Tylko próbki'],['archiwum','Archiwum'],['wszystkie','Wszyscy']].map(([val,label]) => (
           <button key={val} className="btn btn-sm" onClick={() => setFilterStatus(val)}
             style={{ background:filterStatus===val?'#1D9E75':undefined, color:filterStatus===val?'#fff':undefined, borderColor:filterStatus===val?'#1D9E75':undefined }}>
             {label}
@@ -111,18 +136,25 @@ export default function Klienci() {
       <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
         <table>
           <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
-            <th style={{ width:120 }}>Nr klienta</th>
+            <th style={{ width:110 }}>Nr klienta</th>
             <th>Nazwa klienta</th>
-            <th style={{ width:120 }}>Status</th>
+            <th style={{ width:110 }}>Status</th>
             <th>Uwagi</th>
-            <th style={{ width:80, textAlign:'center' }}>Receptur</th>
+            <th style={{ width:95 }}>Data dodania</th>
+            <th style={{ width:105 }}>Ostatnia próbka</th>
+            <th style={{ width:70, textAlign:'center' }}>Receptur</th>
             <th></th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={6} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={8} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filtered.map(c => (
               <tr key={c.id} style={{ opacity: c.status==='archiwum' ? 0.6 : 1 }}>
-                <td><span className="lot">{c.number}</span></td>
+                <td>
+                  {c.is_sample
+                    ? <span className="badge b-purple" style={{ fontSize:10 }}>Próbka</span>
+                    : <span className="lot">{c.number||'—'}</span>
+                  }
+                </td>
                 <td style={{ fontWeight:500 }}>{c.name}</td>
                 <td>
                   {c.status === 'archiwum'
@@ -131,6 +163,13 @@ export default function Klienci() {
                   }
                 </td>
                 <td className="muted">{c.notes||'—'}</td>
+                <td className="muted" style={{ fontSize:12 }}>{fmtDate(c.created_at)}</td>
+                <td>
+                  {c.last_sample_date
+                    ? <span style={{ fontSize:12, color:'#3C3489', fontWeight:500 }}>{fmtDate(c.last_sample_date)}</span>
+                    : <span className="muted">—</span>
+                  }
+                </td>
                 <td style={{ textAlign:'center' }}><span className="badge b-info">{c.recipes?.length||0}</span></td>
                 <td>
                   <div className="flex" style={{ gap:4 }}>
@@ -146,27 +185,49 @@ export default function Klienci() {
                 </td>
               </tr>
             ))}
-            {!loading && filtered.length===0 && <tr><td colSpan={6} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak klientów</td></tr>}
+            {!loading && filtered.length===0 && <tr><td colSpan={8} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak klientów</td></tr>}
           </tbody>
         </table>
       </div>
 
+      {/* Modal nowy/edytuj */}
       <div className={`modal-overlay ${modal?'open':''}`} onClick={e => e.target===e.currentTarget && setModal(false)}>
-        <div className="modal" style={{ maxWidth:480 }}>
+        <div className="modal" style={{ maxWidth:520 }}>
           <div className="modal-title">{editMode?'Edytuj klienta':'Nowy klient'}</div>
           {error && <div className="err-box">{error}</div>}
-          <div className="fr">
-            <div><label>Numer klienta *</label><input value={form.number} onChange={e => f('number',e.target.value)} placeholder="np. K-001" /></div>
-            <div><label>Nazwa klienta *</label><input value={form.name} onChange={e => f('name',e.target.value)} placeholder="Nazwa firmy" /></div>
+
+          {/* Próbka toggle */}
+          <div style={{ marginBottom:12, padding:'10px 12px', background: form.is_sample ? '#EEEDFE' : '#F9F8F5', borderRadius:8, border:`0.5px solid ${form.is_sample ? '#AFA9EC' : '#D3D1C7'}`, display:'flex', alignItems:'center', gap:10 }}>
+            <input type="checkbox" id="is_sample" checked={form.is_sample} onChange={e => f('is_sample', e.target.checked)}
+              style={{ width:16, height:16, cursor:'pointer' }} />
+            <label htmlFor="is_sample" style={{ cursor:'pointer', fontWeight:500, fontSize:13, color: form.is_sample ? '#3C3489' : '#1a1a18' }}>
+              Klient tylko na próbkę (bez numeru klienta)
+            </label>
           </div>
+
+          <div className="fr">
+            {!form.is_sample && (
+              <div><label>Numer klienta *</label><input value={form.number} onChange={e => f('number',e.target.value)} placeholder="np. K-001" /></div>
+            )}
+            <div style={{ flex: form.is_sample ? '1' : undefined }}>
+              <label>Nazwa klienta *</label>
+              <input value={form.name} onChange={e => f('name',e.target.value)} placeholder="Nazwa firmy" />
+            </div>
+          </div>
+
           <div className="fr">
             <div><label>Status klienta</label>
               <select value={form.status} onChange={e => f('status',e.target.value)}>
                 {Object.entries(STATUS_KLIENTA).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </div>
-            <div><label>Uwagi</label><input value={form.notes} onChange={e => f('notes',e.target.value)} placeholder="opcjonalne" /></div>
+            <div><label>Data ostatniej próbki</label>
+              <input type="date" value={form.last_sample_date} onChange={e => f('last_sample_date',e.target.value)} />
+            </div>
           </div>
+
+          <div><label>Uwagi</label><input value={form.notes} onChange={e => f('notes',e.target.value)} placeholder="opcjonalne" /></div>
+
           <div className="modal-footer">
             <button className="btn" onClick={() => setModal(false)}>Anuluj</button>
             <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'Zapisywanie...':editMode?'Zapisz zmiany':'Dodaj klienta'}</button>
@@ -174,10 +235,11 @@ export default function Klienci() {
         </div>
       </div>
 
+      {/* Modal usuń */}
       <div className={`modal-overlay ${confirmDelete?'open':''}`} onClick={e => e.target===e.currentTarget && setConfirmDelete(null)}>
         <div className="modal" style={{ maxWidth:420 }}>
           <div className="modal-title">Usuń klienta</div>
-          <div className="warn-box">Czy na pewno chcesz usunąć klienta <b>{confirmDelete?.number} — {confirmDelete?.name}</b>?<br/>Receptury tego klienta zostaną odłączone ale nie usunięte.</div>
+          <div className="warn-box">Czy na pewno chcesz usunąć klienta <b>{confirmDelete?.number ? confirmDelete.number + ' — ' : ''}{confirmDelete?.name}</b>?<br/>Receptury tego klienta zostaną odłączone ale nie usunięte.</div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setConfirmDelete(null)}>Anuluj</button>
             <button className="btn btn-danger" onClick={() => deleteClient(confirmDelete)}>Tak, usuń</button>
