@@ -16,6 +16,8 @@ export default function Klienci() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('aktywni')
+  const [sortCol, setSortCol] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
   const [modal, setModal] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -32,7 +34,7 @@ export default function Klienci() {
     setLoading(false)
   }
 
-  const filtered = clients.filter(c => {
+  const filteredAndSorted = clients.filter(c => {
     const matchQ = !search ||
       c.name.toLowerCase().includes(search.toLowerCase()) ||
       (c.number||'').toLowerCase().includes(search.toLowerCase())
@@ -41,7 +43,34 @@ export default function Klienci() {
       filterStatus === 'archiwum' ? c.status === 'archiwum' :
       filterStatus === 'probki' ? c.is_sample : true
     return matchQ && matchStatus
+  }).slice().sort((a, b) => {
+    let va = '', vb = ''
+    if (sortCol === 'number') { va = a.is_sample ? 'PRÓBKA' : (a.number||''); vb = b.is_sample ? 'PRÓBKA' : (b.number||'') }
+    else if (sortCol === 'name') { va = a.name||''; vb = b.name||'' }
+    else if (sortCol === 'status') { va = a.status||''; vb = b.status||'' }
+    else if (sortCol === 'created_at') { va = a.created_at||''; vb = b.created_at||'' }
+    else if (sortCol === 'last_sample_date') { va = a.last_sample_date||''; vb = b.last_sample_date||'' }
+    const cmp = va.localeCompare(vb, 'pl', { numeric: true })
+    return sortDir === 'asc' ? cmp : -cmp
   })
+  const filtered = filteredAndSorted
+
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  function SortTh({ col, label, width, center }) {
+    const active = sortCol === col
+    return (
+      <th style={{ width, textAlign: center ? 'center' : undefined, cursor:'pointer', userSelect:'none', whiteSpace:'nowrap' }}
+        onClick={() => toggleSort(col)}>
+        {label} <span style={{ fontSize:10, color: active ? '#0F6E56' : '#B4B2A9', marginLeft:2 }}>
+          {active ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </th>
+    )
+  }
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
@@ -136,12 +165,12 @@ export default function Klienci() {
       <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 300px)' }}>
         <table>
           <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
-            <th style={{ width:110 }}>Nr klienta</th>
-            <th>Nazwa klienta</th>
-            <th style={{ width:110 }}>Status</th>
+            <SortTh col="number" label="Nr klienta" width={110} />
+            <SortTh col="name" label="Nazwa klienta" />
+            <SortTh col="status" label="Status" width={110} />
             <th>Uwagi</th>
-            <th style={{ width:95 }}>Data dodania</th>
-            <th style={{ width:105 }}>Ostatnia próbka</th>
+            <SortTh col="created_at" label="Data dodania" width={95} />
+            <SortTh col="last_sample_date" label="Ostatnia próbka" width={105} />
             <th style={{ width:70, textAlign:'center' }}>Receptur</th>
             <th></th>
           </tr></thead>
