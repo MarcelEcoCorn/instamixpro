@@ -16,7 +16,7 @@ export default function Klienci() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('aktywni')
-  const [sortCol, setSortCol] = useState('name')
+  const [sortCol, setSortCol] = useState('number')
   const [sortDir, setSortDir] = useState('asc')
   const [modal, setModal] = useState(false)
   const [editMode, setEditMode] = useState(false)
