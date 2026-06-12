@@ -23,39 +23,35 @@ export default function MagazynWG() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [batchValues, setBatchValues] = useState({})
-
   const [expandedProduct, setExpandedProduct] = useState(null)
   const [expandedGood, setExpandedGood] = useState(null)
-
   const [search, setSearch] = useState('')
   const [filterView, setFilterView] = useState('aktywne')
-
   const [acceptModal, setAcceptModal] = useState(false)
   const [acceptForm, setAcceptForm] = useState({ production_batch_id: '', order_id: '', received_date: new Date().toISOString().slice(0, 10), quantity_kg: '', location: '', notes: '' })
   const [selectedProdBatch, setSelectedProdBatch] = useState(null)
-
   const [editModal, setEditModal] = useState(false)
   const [editGood, setEditGood] = useState(null)
   const [editForm, setEditForm] = useState({})
   const [savingEdit, setSavingEdit] = useState(false)
-
   const [wzModal, setWzModal] = useState(false)
   const [wzGood, setWzGood] = useState(null)
   const [wzForm, setWzForm] = useState({ issue_date: new Date().toISOString().slice(0, 10), quantity_kg: '', recipient: '', carrier: '', notes: '' })
-
+  const [wzEditModal, setWzEditModal] = useState(false)
+  const [wzEditDoc, setWzEditDoc] = useState(null)
+  const [wzEditForm, setWzEditForm] = useState({})
+  const [savingWzEdit, setSavingWzEdit] = useState(false)
+  const [wzDeleteConfirm, setWzDeleteConfirm] = useState(null)
   const [corrModal, setCorrModal] = useState(false)
   const [corrGood, setCorrGood] = useState(null)
   const [corrForm, setCorrForm] = useState({ correction_type: 'korekta_inwentury', delta_kg: '', reason: '', event_date: new Date().toISOString().slice(0, 10) })
-
   const [inwenturaModal, setInwenturaModal] = useState(false)
   const [inwenturaRows, setInwenturaRows] = useState([])
   const [inwenturaDate, setInwenturaDate] = useState(new Date().toISOString().slice(0, 10))
   const [savingInwentura, setSavingInwentura] = useState(false)
-
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [printWzData, setPrintWzData] = useState(null)
-
   const [bilansDat1, setBilansDat1] = useState(() => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10) })
   const [bilansDat2, setBilansDat2] = useState(new Date().toISOString().slice(0, 10))
   const [bilansMode, setBilansMode] = useState('miesiac')
@@ -77,10 +73,7 @@ export default function MagazynWG() {
     const batchIds = (g || []).map(x => x.production_batch_id).filter(Boolean)
     let bvMap = {}
     if (batchIds.length > 0) {
-      const { data: pbi } = await supabase
-        .from('production_batch_items')
-        .select('production_batch_id, quantity_used_kg, ingredient_batches(unit_price_pln)')
-        .in('production_batch_id', batchIds)
+      const { data: pbi } = await supabase.from('production_batch_items').select('production_batch_id, quantity_used_kg, ingredient_batches(unit_price_pln)').in('production_batch_id', batchIds)
       for (const item of (pbi || [])) {
         const price = parseFloat(item.ingredient_batches?.unit_price_pln || 0)
         const qty = parseFloat(item.quantity_used_kg || 0)
@@ -98,9 +91,7 @@ export default function MagazynWG() {
     const productMap = {}
     for (const item of (g || [])) {
       const key = item.recipe_code + '||' + item.recipe_name
-      if (!productMap[key]) {
-        productMap[key] = { recipe_code: item.recipe_code, recipe_name: item.recipe_name, recipe_version: item.recipe_version, original_kg: 0, issued_kg: 0, corrections_kg: 0, available_kg: 0, batch_count: 0 }
-      }
+      if (!productMap[key]) productMap[key] = { recipe_code: item.recipe_code, recipe_name: item.recipe_name, recipe_version: item.recipe_version, original_kg: 0, issued_kg: 0, corrections_kg: 0, available_kg: 0, batch_count: 0 }
       productMap[key].original_kg += parseFloat(item.original_kg || 0)
       productMap[key].issued_kg += parseFloat(item.issued_kg || 0)
       productMap[key].corrections_kg += parseFloat(item.corrections_kg || 0)
@@ -209,6 +200,26 @@ export default function MagazynWG() {
     setPrintWzData({ wzNumber, good: wzGood, form: { ...wzForm } }); load()
   }
 
+  function openWzEdit(wz) {
+    setWzEditDoc(wz)
+    setWzEditForm({ issue_date: wz.issue_date, quantity_kg: wz.quantity_kg, recipient: wz.recipient||'', carrier: wz.carrier||'', notes: wz.notes||'' })
+    setError(''); setWzEditModal(true)
+  }
+
+  async function saveWzEdit() {
+    if (!wzEditForm.quantity_kg || parseFloat(wzEditForm.quantity_kg) <= 0) { setError('Podaj ilość'); return }
+    setSavingWzEdit(true); setError('')
+    const { error: err } = await supabase.from('wz_documents').update({ issue_date: wzEditForm.issue_date, quantity_kg: parseFloat(wzEditForm.quantity_kg), recipient: wzEditForm.recipient || null, carrier: wzEditForm.carrier || null, notes: wzEditForm.notes || null }).eq('id', wzEditDoc.id)
+    setSavingWzEdit(false)
+    if (err) { setError(err.message); return }
+    setWzEditModal(false); load()
+  }
+
+  async function deleteWz(wz) {
+    await supabase.from('wz_documents').delete().eq('id', wz.id)
+    setWzDeleteConfirm(null); load()
+  }
+
   function printWZ(wzNumber, good, form) {
     const qty = parseFloat(form.quantity_kg).toFixed(3)
     const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>WZ ${wzNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;padding:16px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:10px;margin-bottom:14px}.company{font-size:16px;font-weight:bold;color:#0F6E56}.wz-number{font-size:18px;font-weight:bold;color:#0F6E56;margin-top:4px}.info-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}.info-box{border:1px solid #D3D1C7;border-radius:4px;padding:6px 10px}.info-label{font-size:9px;color:#888;text-transform:uppercase;margin-bottom:2px}.info-value{font-size:13px;font-weight:bold}table{width:100%;border-collapse:collapse;margin-bottom:14px}th{background:#0F6E56;color:#fff;padding:6px;font-size:9px;text-align:left;border:1px solid #085041}td{padding:6px;border:1px solid #D3D1C7;font-size:11px}.total td{background:#E1F5EE;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1px solid #333;margin-top:28px;margin-bottom:4px}.sig-label{font-size:9px;color:#888;text-transform:uppercase}@media print{@page{margin:10mm;size:A4}}</style></head><body><div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:13px;font-weight:bold;margin-top:3px">Wydanie Zewnętrzne (WZ)</div><div class="wz-number">${wzNumber}</div></div><div style="text-align:right;font-size:10px;color:#555">Data wydania: <strong>${form.issue_date}</strong><br>Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wystawił: <strong>${profile?.full_name||'—'}</strong></div></div><div class="info-grid"><div class="info-box"><div class="info-label">Odbiorca</div><div class="info-value">${form.recipient||'—'}</div></div><div class="info-box"><div class="info-label">Przewoźnik</div><div class="info-value">${form.carrier||'—'}</div></div><div class="info-box"><div class="info-label">Nr zlecenia</div><div class="info-value">${good.order_number||'—'}</div></div><div class="info-box"><div class="info-label">Nr partii produkcyjnej</div><div class="info-value">${good.lot_number}</div></div><div class="info-box"><div class="info-label">Receptura</div><div class="info-value">${good.recipe_code} — ${good.recipe_name}</div></div><div class="info-box"><div class="info-label">Lokalizacja</div><div class="info-value">${good.location||'—'}</div></div></div><table><thead><tr><th>Lp.</th><th>Kod</th><th>Nazwa produktu</th><th style="text-align:right">Ilość (kg)</th><th>Nr partii</th><th>Uwagi</th></tr></thead><tbody><tr><td>1</td><td>${good.recipe_code}</td><td>${good.recipe_name} (${good.recipe_version})</td><td style="text-align:right;font-weight:bold">${qty}</td><td>${good.lot_number}</td><td>${form.notes||''}</td></tr><tr class="total"><td colspan="3" style="text-align:right">RAZEM:</td><td style="text-align:right">${qty} kg</td><td colspan="2"></td></tr></tbody></table><div class="sig-grid"><div><div class="sig-label">Wydał (magazyn)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Odebrał</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div><script>window.onload=function(){window.print()}</script></body></html>`
@@ -222,7 +233,6 @@ export default function MagazynWG() {
   async function obliczBilans() {
     setBilansLoading(true); setShowBilans(true)
     const d1=bilansDat1, d2=bilansDat2
-
     const { data: allGoods } = await supabase.from('finished_goods').select('id,production_batch_id,quantity_kg')
     const allBatchIds = (allGoods||[]).map(x=>x.production_batch_id).filter(Boolean)
     const bvLocal = {}
@@ -236,10 +246,7 @@ export default function MagazynWG() {
       }
     }
     const fgValueMap = {}
-    for (const fg of (allGoods||[])) {
-      fgValueMap[fg.id] = bvLocal[fg.production_batch_id] || 0
-    }
-
+    for (const fg of (allGoods||[])) { fgValueMap[fg.id] = bvLocal[fg.production_batch_id] || 0 }
     const [{ data: przyjecia }, { data: przyjBefore }, { data: wzPeriod }, { data: wzBefore }, { data: corrPeriod }, { data: corrBefore }] = await Promise.all([
       supabase.from('finished_goods').select('id,quantity_kg,received_date,production_batches(recipe_id,recipes(code,name))').gte('received_date',d1).lte('received_date',d2),
       supabase.from('finished_goods').select('id,quantity_kg,received_date,production_batches(recipe_id,recipes(code,name))').lt('received_date',d1),
@@ -248,34 +255,23 @@ export default function MagazynWG() {
       supabase.from('fg_corrections').select('delta_kg,event_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').gte('event_date',d1).lte('event_date',d2),
       supabase.from('fg_corrections').select('delta_kg,event_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').lt('event_date',d1),
     ])
-
     function rk(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.code+'||'+r.name:null }
     function rn(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.name:'?' }
     function rc(item) { const r=item?.production_batches?.recipes||item?.finished_goods?.production_batches?.recipes; return r?r.code:'?' }
-
     const keys=new Set(), boMap={}, przychMap={}, rozchMap={}, korMap={}, nameMap={}, codeMap={}
-    const boValMap={}, przychValMap={}, rozchValMap={}
-
-    // Buduj mapy wartości dla WZ i korekt przed d1 (do odjęcia od BO)
-    const wzBeforeValMap={}, corrBeforeValMap={}
+    const boValMap={}, przychValMap={}, rozchValMap={}, wzBeforeValMap={}, corrBeforeValMap={}
     for (const w of (wzBefore||[])) {
       const k=rk(w); if(!k) continue; keys.add(k)
       boMap[k]=(boMap[k]||0)-parseFloat(w.quantity_kg)
-      const fgId=w.finished_good_id
-      const fgVal=fgValueMap[fgId]||0
-      const fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal=fgOrigKg>0?Math.round((parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0
-      wzBeforeValMap[k]=(wzBeforeValMap[k]||0)+propVal
+      const fgId=w.finished_good_id, fgVal=fgValueMap[fgId]||0, fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      wzBeforeValMap[k]=(wzBeforeValMap[k]||0)+(fgOrigKg>0?Math.round((parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0)
       nameMap[k]=rn(w); codeMap[k]=rc(w)
     }
     for (const c of (corrBefore||[])) {
       const k=rk(c); if(!k) continue; keys.add(k)
       boMap[k]=(boMap[k]||0)+parseFloat(c.delta_kg)
-      const fgId=c.finished_good_id
-      const fgVal=fgValueMap[fgId]||0
-      const fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal=fgOrigKg>0?Math.round((parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0
-      corrBeforeValMap[k]=(corrBeforeValMap[k]||0)+propVal
+      const fgId=c.finished_good_id, fgVal=fgValueMap[fgId]||0, fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      corrBeforeValMap[k]=(corrBeforeValMap[k]||0)+(fgOrigKg>0?Math.round((parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0)
       nameMap[k]=rn(c); codeMap[k]=rc(c)
     }
     for (const p of (przyjBefore||[])) {
@@ -284,95 +280,42 @@ export default function MagazynWG() {
       boValMap[k]=(boValMap[k]||0)+(fgValueMap[p.id]||0)
       nameMap[k]=rn(p); codeMap[k]=rc(p)
     }
-    // BO wartość = suma przyjęć przed d1 - rozchód (WZ) przed d1 + korekty przed d1
-    for (const k of Object.keys(boValMap)) {
-      boValMap[k] = Math.max(0, (boValMap[k]||0) - (wzBeforeValMap[k]||0) + (corrBeforeValMap[k]||0))
-    }
+    for (const k of Object.keys(boValMap)) { boValMap[k] = Math.max(0, (boValMap[k]||0) - (wzBeforeValMap[k]||0) + (corrBeforeValMap[k]||0)) }
     for (const p of (przyjecia||[])) { const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
     for (const w of (wzPeriod||[])) {
       const k=rk(w); if(!k) continue; keys.add(k)
       rozchMap[k]=(rozchMap[k]||0)+parseFloat(w.quantity_kg)
-      // Wartość rozchodu proporcjonalna do wartości partii
-      const fgId = w.finished_good_id
-      const fgVal = fgValueMap[fgId]||0
-      const fgOrigKg = (allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal = fgOrigKg > 0 ? Math.round((parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal*100)/100 : 0
-      rozchValMap[k]=(rozchValMap[k]||0)+propVal
+      const fgId=w.finished_good_id, fgVal=fgValueMap[fgId]||0, fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      rozchValMap[k]=(rozchValMap[k]||0)+(fgOrigKg>0?Math.round((parseFloat(w.quantity_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0)
       nameMap[k]=rn(w); codeMap[k]=rc(w)
     }
-    // Wartość korekt proporcjonalna do wartości partii
     const korValMap={}
     for (const c of (corrPeriod||[])) {
       const k=rk(c); if(!k) continue; keys.add(k)
       korMap[k]=(korMap[k]||0)+parseFloat(c.delta_kg)
-      const fgId = c.finished_good_id
-      const fgVal = fgValueMap[fgId]||0
-      const fgOrigKg = (allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
-      const propVal = fgOrigKg > 0 ? Math.round((parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal*100)/100 : 0
-      korValMap[k]=(korValMap[k]||0)+propVal
+      const fgId=c.finished_good_id, fgVal=fgValueMap[fgId]||0, fgOrigKg=(allGoods||[]).find(x=>x.id===fgId)?.quantity_kg||0
+      korValMap[k]=(korValMap[k]||0)+(fgOrigKg>0?Math.round((parseFloat(c.delta_kg)/parseFloat(fgOrigKg))*fgVal*100)/100:0)
       nameMap[k]=rn(c); codeMap[k]=rc(c)
     }
-
     const bilans=[...keys].map(k=>{
-      const bo=parseFloat(Math.max(0,boMap[k]||0).toFixed(3))
-      const przych=parseFloat((przychMap[k]||0).toFixed(3))
-      const kor=parseFloat((korMap[k]||0).toFixed(3))
-      const rozch=parseFloat((rozchMap[k]||0).toFixed(3))
+      const bo=parseFloat(Math.max(0,boMap[k]||0).toFixed(3)), przych=parseFloat((przychMap[k]||0).toFixed(3))
+      const kor=parseFloat((korMap[k]||0).toFixed(3)), rozch=parseFloat((rozchMap[k]||0).toFixed(3))
       const bz=parseFloat(Math.max(0,bo+przych+kor-rozch).toFixed(3))
-      const boVal=parseFloat((boValMap[k]||0).toFixed(2))
-      const przychVal=parseFloat((przychValMap[k]||0).toFixed(2))
-      const rozchVal=parseFloat((rozchValMap[k]||0).toFixed(2))
-      const korVal=parseFloat((korValMap[k]||0).toFixed(2))
+      const boVal=parseFloat((boValMap[k]||0).toFixed(2)), przychVal=parseFloat((przychValMap[k]||0).toFixed(2))
+      const rozchVal=parseFloat((rozchValMap[k]||0).toFixed(2)), korVal=parseFloat((korValMap[k]||0).toFixed(2))
       const bzVal=parseFloat(Math.max(0,boVal+przychVal+korVal-rozchVal).toFixed(2))
       return {key:k,code:codeMap[k],name:nameMap[k],bo,przych,kor,rozch,bz,boVal,przychVal,korVal,rozchVal,bzVal}
     }).filter(r=>r.bo>0||r.przych>0||r.kor!==0||r.rozch>0||r.bz>0||r.boVal>0).sort((a,b)=>a.code.localeCompare(b.code))
-
     setBilansData(bilans); setBilansLoading(false)
   }
 
   function printBilans() {
     const d1str=new Date(bilansDat1).toLocaleDateString('pl-PL'), d2str=new Date(bilansDat2).toLocaleDateString('pl-PL')
     const fmt2=(v)=>v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})
-    const rowsHtml=bilansData.map((r,i)=>`<tr>
-      <td>${i+1}</td><td style="font-family:monospace;font-size:8px">${r.code}</td><td>${r.name}</td>
-      <td style="text-align:right">${r.bo.toFixed(3)}</td>
-      <td style="text-align:right;color:#0C447C">${r.boVal>0?fmt2(r.boVal):'—'}</td>
-      <td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td>
-      <td style="text-align:right;color:#085041">${r.przychVal>0?fmt2(r.przychVal):'—'}</td>
-      <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'}">${r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td>
-      <td style="text-align:right;color:${r.kor<0?'#A32D2D':'#E65100'}">${r.kor!==0?fmt2(r.korVal):'—'}</td>
-      <td style="text-align:right;color:#7B3F00">${r.rozch.toFixed(3)}</td>
-      <td style="text-align:right;color:#7B3F00">${r.rozchVal>0?fmt2(r.rozchVal):'—'}</td>
-      <td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz.toFixed(3)}</td>
-      <td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz>0?fmt2(r.bzVal):'—'}</td>
-    </tr>`).join('')
-    const sumaHtml=`<tr class="total">
-      <td colspan="3" style="text-align:right">SUMA:</td>
-      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td>
-      <td style="text-align:right">${fmt2(bilansData.reduce((s,r)=>s+r.boVal,0))}</td>
-      <td style="text-align:right;color:#085041">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
-      <td style="text-align:right;color:#085041">${fmt2(bilansData.reduce((s,r)=>s+r.przychVal,0))}</td>
-      <td style="text-align:right">${bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
-      <td style="text-align:right">${fmt2(bilansData.reduce((s,r)=>s+r.korVal,0))}</td>
-      <td style="text-align:right;color:#7B3F00">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
-      <td style="text-align:right;color:#7B3F00">${fmt2(bilansData.reduce((s,r)=>s+r.rozchVal,0))}</td>
-      <td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
-      <td style="text-align:right;font-weight:bold">${fmt2(bilansData.reduce((s,r)=>s+r.bzVal,0))}</td>
-    </tr>`
-    const emptyRow = bilansData.length === 0 ? `<tr><td colspan="13" style="text-align:center;padding:16px;color:#888;font-style:italic">Brak ruchów magazynowych w wybranym okresie</td></tr>` : ''
-    const html=`<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Bilans Magazyn Instant</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:9px;padding:14px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}.company{font-size:15px;font-weight:bold;color:#0F6E56}table{width:100%;border-collapse:collapse;margin-bottom:10px}th{background:#0F6E56;color:#fff;padding:4px 5px;border:1px solid #085041;font-size:7px;text-align:left}td{padding:3px 5px;border:1px solid #D3D1C7;font-size:8px}tr:nth-child(even) td{background:#FAFAF8}.total td{background:#E1F5EE!important;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1.5px solid #333;margin-top:24px;margin-bottom:4px}.sig-label{font-size:8px;color:#888;text-transform:uppercase}@media print{@page{margin:8mm;size:A4 landscape}}</style></head><body>
-    <div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:12px;font-weight:bold;margin-top:3px">Bilans Magazynu Instant — Wyroby Gotowe</div><div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Okres: ${d1str} — ${d2str}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wydrukował: ${profile?.full_name||'—'}</div></div>
-    <table><thead><tr>
-      <th style="width:18px">Lp.</th><th style="width:55px">Kod</th><th>Nazwa produktu</th>
-      <th style="width:48px;text-align:right">BO (kg)</th><th style="width:58px;text-align:right">Wart. BO (zł)</th>
-      <th style="width:55px;text-align:right">Przychód (kg)</th><th style="width:60px;text-align:right">Wart. przych. (zł)</th>
-      <th style="width:48px;text-align:right">Korekty (kg)</th>
-      <th style="width:56px;text-align:right">Wart. kor. (zł)</th>
-      <th style="width:50px;text-align:right">Rozchód (kg)</th><th style="width:60px;text-align:right">Wart. rozch. (zł)</th>
-      <th style="width:48px;text-align:right">BZ (kg)</th><th style="width:60px;text-align:right">Wart. BZ (zł)</th>
-    </tr></thead><tbody>${bilansData.length === 0 ? emptyRow : rowsHtml+sumaHtml}</tbody></table>
-    <div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Weryfikował</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div>
-    <script>window.onload=function(){window.print()}</script></body></html>`
+    const rowsHtml=bilansData.map((r,i)=>`<tr><td>${i+1}</td><td style="font-family:monospace;font-size:8px">${r.code}</td><td>${r.name}</td><td style="text-align:right">${r.bo.toFixed(3)}</td><td style="text-align:right;color:#0C447C">${r.boVal>0?fmt2(r.boVal):'—'}</td><td style="text-align:right;color:#085041">${r.przych.toFixed(3)}</td><td style="text-align:right;color:#085041">${r.przychVal>0?fmt2(r.przychVal):'—'}</td><td style="text-align:right;color:${r.kor<0?'#A32D2D':'#633806'}">${r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td><td style="text-align:right;color:${r.kor<0?'#A32D2D':'#E65100'}">${r.kor!==0?fmt2(r.korVal):'—'}</td><td style="text-align:right;color:#7B3F00">${r.rozch.toFixed(3)}</td><td style="text-align:right;color:#7B3F00">${r.rozchVal>0?fmt2(r.rozchVal):'—'}</td><td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz.toFixed(3)}</td><td style="text-align:right;font-weight:bold;color:#3C3489">${r.bz>0?fmt2(r.bzVal):'—'}</td></tr>`).join('')
+    const sumaHtml=`<tr class="total"><td colspan="3" style="text-align:right">SUMA:</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td><td style="text-align:right">${fmt2(bilansData.reduce((s,r)=>s+r.boVal,0))}</td><td style="text-align:right;color:#085041">${bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td><td style="text-align:right;color:#085041">${fmt2(bilansData.reduce((s,r)=>s+r.przychVal,0))}</td><td style="text-align:right">${bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td><td style="text-align:right">${fmt2(bilansData.reduce((s,r)=>s+r.korVal,0))}</td><td style="text-align:right;color:#7B3F00">${bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td><td style="text-align:right;color:#7B3F00">${fmt2(bilansData.reduce((s,r)=>s+r.rozchVal,0))}</td><td style="text-align:right;font-weight:bold">${bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td><td style="text-align:right;font-weight:bold">${fmt2(bilansData.reduce((s,r)=>s+r.bzVal,0))}</td></tr>`
+    const emptyRow=bilansData.length===0?`<tr><td colspan="13" style="text-align:center;padding:16px;color:#888;font-style:italic">Brak ruchów magazynowych w wybranym okresie</td></tr>`:''
+    const html=`<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>Bilans Magazyn Instant</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:9px;padding:14px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:8px;margin-bottom:10px}.company{font-size:15px;font-weight:bold;color:#0F6E56}table{width:100%;border-collapse:collapse;margin-bottom:10px}th{background:#0F6E56;color:#fff;padding:4px 5px;border:1px solid #085041;font-size:7px;text-align:left}td{padding:3px 5px;border:1px solid #D3D1C7;font-size:8px}tr:nth-child(even) td{background:#FAFAF8}.total td{background:#E1F5EE!important;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1.5px solid #333;margin-top:24px;margin-bottom:4px}.sig-label{font-size:8px;color:#888;text-transform:uppercase}@media print{@page{margin:8mm;size:A4 landscape}}</style></head><body><div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:12px;font-weight:bold;margin-top:3px">Bilans Magazynu Instant — Wyroby Gotowe</div><div style="font-size:13px;font-weight:bold;color:#0F6E56;margin-top:2px">Okres: ${d1str} — ${d2str}</div></div><div style="text-align:right;font-size:9px;color:#555">Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wydrukował: ${profile?.full_name||'—'}</div></div><table><thead><tr><th style="width:18px">Lp.</th><th style="width:55px">Kod</th><th>Nazwa produktu</th><th style="width:48px;text-align:right">BO (kg)</th><th style="width:58px;text-align:right">Wart. BO (zł)</th><th style="width:55px;text-align:right">Przychód (kg)</th><th style="width:60px;text-align:right">Wart. przych. (zł)</th><th style="width:48px;text-align:right">Korekty (kg)</th><th style="width:56px;text-align:right">Wart. kor. (zł)</th><th style="width:50px;text-align:right">Rozchód (kg)</th><th style="width:60px;text-align:right">Wart. rozch. (zł)</th><th style="width:48px;text-align:right">BZ (kg)</th><th style="width:60px;text-align:right">Wart. BZ (zł)</th></tr></thead><tbody>${bilansData.length===0?emptyRow:rowsHtml+sumaHtml}</tbody></table><div class="sig-grid"><div><div class="sig-label">Sporządził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Weryfikował</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div><script>window.onload=function(){window.print()}</script></body></html>`
     const win=window.open('','_blank'); win.document.write(html); win.document.close()
   }
 
@@ -390,15 +333,12 @@ export default function MagazynWG() {
           {canEdit && <button className="btn btn-primary btn-sm" onClick={() => { setAcceptForm({ production_batch_id: '', order_id: '', received_date: new Date().toISOString().slice(0,10), quantity_kg: '', location: '', notes: '' }); setSelectedProdBatch(null); setError(''); setAcceptModal(true) }}>+ Przyjęcie</button>}
         </div>
       </div>
-
       <div className="stat-grid">
         <div className="stat-card"><div className="stat-label">Produktów na stanie</div><div className="stat-val">{stats.products}</div></div>
         <div className="stat-card"><div className="stat-label">Z dostępnym stanem</div><div className="stat-val" style={{ color: '#085041' }}>{stats.available}</div></div>
         <div className="stat-card"><div className="stat-label">Łącznie przyjęto (kg)</div><div className="stat-val">{parseFloat(stats.totalKg).toLocaleString('pl-PL')}</div></div>
         <div className="stat-card"><div className="stat-label">Dostępne (kg)</div><div className="stat-val" style={{ color: '#085041' }}>{parseFloat(stats.availableKg).toLocaleString('pl-PL')}</div></div>
       </div>
-
-      {/* Bilans */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <span style={{ fontWeight: 500, fontSize: 13 }}>Bilans magazynowy</span>
@@ -438,46 +378,46 @@ export default function MagazynWG() {
                 <table style={{ minWidth: 800 }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}><tr>
                     <th>Kod</th><th>Nazwa produktu</th>
-                    <th style={{ textAlign: 'right', background: '#E6F1FB', color: '#0C447C' }}>BO (kg)</th>
-                    <th style={{ textAlign: 'right', background: '#E6F1FB', color: '#0C447C' }}>Wart. BO (zł)</th>
-                    <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Przychód (kg)</th>
-                    <th style={{ textAlign: 'right', background: '#E1F5EE', color: '#085041' }}>Wart. przychodu (zł)</th>
-                    <th style={{ textAlign: 'right', background: '#FFF8E1', color: '#E65100' }}>Korekty (kg)</th>
-                    <th style={{ textAlign: 'right', background: '#FFF8E1', color: '#E65100', fontSize: 10 }}>Wart. kor. (zł)</th>
-                    <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00' }}>Rozchód (kg)</th>
-                    <th style={{ textAlign: 'right', background: '#FAEEDA', color: '#7B3F00', fontSize: 10 }}>Wart. rozch. (zł)</th>
-                    <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>BZ (kg)</th>
-                    <th style={{ textAlign: 'right', background: '#EEEDFE', color: '#3C3489' }}>Wart. BZ (zł)</th>
+                    <th style={{ textAlign:'right', background:'#E6F1FB', color:'#0C447C' }}>BO (kg)</th>
+                    <th style={{ textAlign:'right', background:'#E6F1FB', color:'#0C447C' }}>Wart. BO (zł)</th>
+                    <th style={{ textAlign:'right', background:'#E1F5EE', color:'#085041' }}>Przychód (kg)</th>
+                    <th style={{ textAlign:'right', background:'#E1F5EE', color:'#085041' }}>Wart. przychodu (zł)</th>
+                    <th style={{ textAlign:'right', background:'#FFF8E1', color:'#E65100' }}>Korekty (kg)</th>
+                    <th style={{ textAlign:'right', background:'#FFF8E1', color:'#E65100', fontSize:10 }}>Wart. kor. (zł)</th>
+                    <th style={{ textAlign:'right', background:'#FAEEDA', color:'#7B3F00' }}>Rozchód (kg)</th>
+                    <th style={{ textAlign:'right', background:'#FAEEDA', color:'#7B3F00', fontSize:10 }}>Wart. rozch. (zł)</th>
+                    <th style={{ textAlign:'right', background:'#EEEDFE', color:'#3C3489' }}>BZ (kg)</th>
+                    <th style={{ textAlign:'right', background:'#EEEDFE', color:'#3C3489' }}>Wart. BZ (zł)</th>
                   </tr></thead>
                   <tbody>
                     {bilansData.map(r => (
                       <tr key={r.key}>
                         <td><span className="lot">{r.code}</span></td>
-                        <td style={{ fontWeight: 500 }}>{r.name}</td>
-                        <td style={{ textAlign: 'right', color: '#0C447C' }}>{r.bo.toFixed(3)}</td>
-                        <td style={{ textAlign: 'right', color: '#0C447C', fontSize: 11 }}>{r.boVal > 0 ? r.boVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: '#085041', fontWeight: 500 }}>{r.przych.toFixed(3)}</td>
-                        <td style={{ textAlign: 'right', color: '#085041', fontSize: 11, fontWeight: 500 }}>{r.przychVal > 0 ? r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: r.kor < 0 ? '#A32D2D' : r.kor > 0 ? '#085041' : '#888' }}>{r.kor !== 0 ? (r.kor > 0 ? '+' : '') + r.kor.toFixed(3) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: r.korVal < 0 ? '#A32D2D' : '#E65100', fontSize: 11 }}>{r.kor !== 0 ? r.korVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: '#7B3F00', fontWeight: 500 }}>{r.rozch.toFixed(3)}</td>
-                        <td style={{ textAlign: 'right', color: '#7B3F00', fontSize: 11 }}>{r.rozchVal > 0 ? r.rozchVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-                        <td style={{ textAlign: 'right', color: '#3C3489', fontWeight: 700 }}>{r.bz.toFixed(3)}</td>
-                        <td style={{ textAlign: 'right', color: '#3C3489', fontSize: 11, fontWeight: 700 }}>{r.bz > 0 ? r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+                        <td style={{ fontWeight:500 }}>{r.name}</td>
+                        <td style={{ textAlign:'right', color:'#0C447C' }}>{r.bo.toFixed(3)}</td>
+                        <td style={{ textAlign:'right', color:'#0C447C', fontSize:11 }}>{r.boVal>0?r.boVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}</td>
+                        <td style={{ textAlign:'right', color:'#085041', fontWeight:500 }}>{r.przych.toFixed(3)}</td>
+                        <td style={{ textAlign:'right', color:'#085041', fontSize:11, fontWeight:500 }}>{r.przychVal>0?r.przychVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}</td>
+                        <td style={{ textAlign:'right', color:r.kor<0?'#A32D2D':r.kor>0?'#085041':'#888' }}>{r.kor!==0?(r.kor>0?'+':'')+r.kor.toFixed(3):'—'}</td>
+                        <td style={{ textAlign:'right', color:r.korVal<0?'#A32D2D':'#E65100', fontSize:11 }}>{r.kor!==0?r.korVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}</td>
+                        <td style={{ textAlign:'right', color:'#7B3F00', fontWeight:500 }}>{r.rozch.toFixed(3)}</td>
+                        <td style={{ textAlign:'right', color:'#7B3F00', fontSize:11 }}>{r.rozchVal>0?r.rozchVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}</td>
+                        <td style={{ textAlign:'right', color:'#3C3489', fontWeight:700 }}>{r.bz.toFixed(3)}</td>
+                        <td style={{ textAlign:'right', color:'#3C3489', fontSize:11, fontWeight:700 }}>{r.bz>0?r.bzVal.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'}</td>
                       </tr>
                     ))}
-                    <tr style={{ background: '#F1EFE8' }}>
-                      <td colSpan={2} style={{ fontWeight: 500, textAlign: 'right' }}>SUMA</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700 }}>{bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#0C447C' }}>{bilansData.reduce((s,r)=>s+r.boVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#085041' }}>{bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#E65100' }}>{bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#E65100', fontSize: 11 }}>{bilansData.reduce((s,r)=>s+r.korVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00' }}>{bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#7B3F00', fontSize: 11 }}>{bilansData.reduce((s,r)=>s+r.rozchVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: '#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                    <tr style={{ background:'#F1EFE8' }}>
+                      <td colSpan={2} style={{ fontWeight:500, textAlign:'right' }}>SUMA</td>
+                      <td style={{ textAlign:'right', fontWeight:700 }}>{bilansData.reduce((s,r)=>s+r.bo,0).toFixed(3)}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#0C447C' }}>{bilansData.reduce((s,r)=>s+r.boVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#085041' }}>{bilansData.reduce((s,r)=>s+r.przych,0).toFixed(3)}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#085041' }}>{bilansData.reduce((s,r)=>s+r.przychVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#E65100' }}>{bilansData.reduce((s,r)=>s+r.kor,0).toFixed(3)}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#E65100', fontSize:11 }}>{bilansData.reduce((s,r)=>s+r.korVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#7B3F00' }}>{bilansData.reduce((s,r)=>s+r.rozch,0).toFixed(3)}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#7B3F00', fontSize:11 }}>{bilansData.reduce((s,r)=>s+r.rozchVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bz,0).toFixed(3)}</td>
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#3C3489' }}>{bilansData.reduce((s,r)=>s+r.bzVal,0).toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -486,168 +426,147 @@ export default function MagazynWG() {
           </div>
         )}
       </div>
-
       {printWzData && (
-        <div className="info-box" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="info-box" style={{ marginBottom:10, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <span>✓ Dokument <b>{printWzData.wzNumber}</b> wystawiony pomyślnie.</span>
-          <div className="flex" style={{ gap: 8 }}>
+          <div className="flex" style={{ gap:8 }}>
             <button className="btn btn-sm btn-primary" onClick={() => printWZ(printWzData.wzNumber, printWzData.good, printWzData.form)}>Drukuj WZ</button>
             <button className="btn btn-sm" onClick={() => setPrintWzData(null)}>✕</button>
           </div>
         </div>
       )}
-
-      <div className="flex" style={{ marginBottom: 10, gap: 6 }}>
+      <div className="flex" style={{ marginBottom:10, gap:6 }}>
         {[['aktywne','Dostępne'],['wydane','Wydane'],['wszystkie','Wszystkie']].map(([val,label]) => (
           <button key={val} className="btn btn-sm" onClick={() => setFilterView(val)}
-            style={{ background: filterView===val?'#1D9E75':undefined, color: filterView===val?'#fff':undefined, borderColor: filterView===val?'#1D9E75':undefined }}>
+            style={{ background:filterView===val?'#1D9E75':undefined, color:filterView===val?'#fff':undefined, borderColor:filterView===val?'#1D9E75':undefined }}>
             {label}
           </button>
         ))}
       </div>
-
-      <div style={{ background: '#fff', border: '0.5px solid #D3D1C7', borderRadius: 8, overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 320px)' }}>
-        <table style={{ width: '100%' }}>
-          <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}><tr>
-            <th style={{ width: 32 }}></th>
+      <div style={{ background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 320px)' }}>
+        <table style={{ width:'100%' }}>
+          <thead style={{ position:'sticky', top:0, zIndex:10, background:'#fff' }}><tr>
+            <th style={{ width:32 }}></th>
             <th>Kod</th><th>Nazwa produktu</th>
-            <th style={{ textAlign: 'right' }}>Przyjęto (kg)</th>
-            <th style={{ textAlign: 'right' }}>Korekty (kg)</th>
-            <th style={{ textAlign: 'right' }}>Wydano (kg)</th>
-            <th style={{ textAlign: 'right' }}>Dostępne (kg)</th>
-            <th style={{ textAlign: 'right' }}>Wart. surowców</th>
-            <th style={{ textAlign: 'center' }}>Partii</th>
+            <th style={{ textAlign:'right' }}>Przyjęto (kg)</th>
+            <th style={{ textAlign:'right' }}>Korekty (kg)</th>
+            <th style={{ textAlign:'right' }}>Wydano (kg)</th>
+            <th style={{ textAlign:'right' }}>Dostępne (kg)</th>
+            <th style={{ textAlign:'right' }}>Wart. surowców</th>
+            <th style={{ textAlign:'center' }}>Partii</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#888' }}>Ładowanie...</td></tr>}
+            {loading && <tr><td colSpan={9} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
             {!loading && filteredProducts.map(p => {
               const isExpanded = expandedProduct === p.recipe_code
               const available = parseFloat(p.available_kg)
               const partieList = goodsForProduct(p.recipe_code)
               return (
                 <React.Fragment key={p.recipe_code}>
-                  <tr style={{ background: available <= 0 ? '#F9F8F5' : undefined }}>
-                    <td style={{ textAlign: 'center' }}>
-                      <button onClick={() => setExpandedProduct(isExpanded ? null : p.recipe_code)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#5F5E5A', padding: '2px 4px' }}>
-                        {isExpanded ? '▲' : '▼'}
+                  <tr style={{ background:available<=0?'#F9F8F5':undefined }}>
+                    <td style={{ textAlign:'center' }}>
+                      <button onClick={() => setExpandedProduct(isExpanded?null:p.recipe_code)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, color:'#5F5E5A', padding:'2px 4px' }}>
+                        {isExpanded?'▲':'▼'}
                       </button>
                     </td>
                     <td><span className="lot">{p.recipe_code}</span></td>
-                    <td style={{ fontWeight: 500 }}>{p.recipe_name} <span className="badge b-info" style={{ fontSize: 10 }}>{p.recipe_version}</span></td>
-                    <td style={{ textAlign: 'right', color: '#085041', fontWeight: 500 }}>{fmt3(p.original_kg)}</td>
-                    <td style={{ textAlign: 'right', color: parseFloat(p.corrections_kg) < 0 ? '#A32D2D' : parseFloat(p.corrections_kg) > 0 ? '#085041' : '#888' }}>
-                      {parseFloat(p.corrections_kg) !== 0 ? (parseFloat(p.corrections_kg) > 0 ? '+' : '') + fmt3(p.corrections_kg) : '—'}
+                    <td style={{ fontWeight:500 }}>{p.recipe_name} <span className="badge b-info" style={{ fontSize:10 }}>{p.recipe_version}</span></td>
+                    <td style={{ textAlign:'right', color:'#085041', fontWeight:500 }}>{fmt3(p.original_kg)}</td>
+                    <td style={{ textAlign:'right', color:parseFloat(p.corrections_kg)<0?'#A32D2D':parseFloat(p.corrections_kg)>0?'#085041':'#888' }}>
+                      {parseFloat(p.corrections_kg)!==0?(parseFloat(p.corrections_kg)>0?'+':'')+fmt3(p.corrections_kg):'—'}
                     </td>
-                    <td style={{ textAlign: 'right', color: '#633806' }}>{fmt3(p.issued_kg)}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <span style={{ fontWeight: 700, fontSize: 14, color: available <= 0 ? '#888' : '#0F6E56' }}>{fmt3(available)}</span>
-                      {available <= 0 && <span className="badge b-gray" style={{ marginLeft: 6, fontSize: 10 }}>Wydano</span>}
+                    <td style={{ textAlign:'right', color:'#633806' }}>{fmt3(p.issued_kg)}</td>
+                    <td style={{ textAlign:'right' }}>
+                      <span style={{ fontWeight:700, fontSize:14, color:available<=0?'#888':'#0F6E56' }}>{fmt3(available)}</span>
+                      {available<=0 && <span className="badge b-gray" style={{ marginLeft:6, fontSize:10 }}>Wydano</span>}
                     </td>
-                    <td style={{ textAlign: 'right', fontSize: 12, color: '#3C3489' }}>
-                      {(() => {
-                        const v = goodsForProduct(p.recipe_code).reduce((s,g) => {
-                          const total = batchValues[g.production_batch_id] || 0
-                          const origKg = parseFloat(g.original_kg || 0)
-                          const availKg = parseFloat(g.available_kg || 0)
-                          if (total <= 0 || origKg <= 0) return s
-                          return s + Math.round((availKg / origKg) * total * 100) / 100
-                        }, 0)
-                        return v > 0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
-                      })()}
+                    <td style={{ textAlign:'right', fontSize:12, color:'#3C3489' }}>
+                      {(() => { const v=goodsForProduct(p.recipe_code).reduce((s,g)=>{ const total=batchValues[g.production_batch_id]||0; const origKg=parseFloat(g.original_kg||0); const availKg=parseFloat(g.available_kg||0); if(total<=0||origKg<=0) return s; return s+Math.round((availKg/origKg)*total*100)/100 },0); return v>0?v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł':'—' })()}
                     </td>
-                    <td style={{ textAlign: 'center', color: '#5F5E5A' }}>{p.batch_count}</td>
+                    <td style={{ textAlign:'center', color:'#5F5E5A' }}>{p.batch_count}</td>
                   </tr>
-
                   {isExpanded && (
                     <tr>
-                      <td colSpan={9} style={{ padding: 0, background: '#F9F8F5' }}>
-                        <div style={{ padding: '8px 16px 12px 40px' }}>
-                          <div style={{ fontSize: 12, fontWeight: 500, color: '#0F6E56', marginBottom: 8 }}>Partie — {p.recipe_name}</div>
-                          <table style={{ width: 'auto', minWidth: 700 }}>
+                      <td colSpan={9} style={{ padding:0, background:'#F9F8F5' }}>
+                        <div style={{ padding:'8px 16px 12px 40px' }}>
+                          <div style={{ fontSize:12, fontWeight:500, color:'#0F6E56', marginBottom:8 }}>Partie — {p.recipe_name}</div>
+                          <table style={{ width:'auto', minWidth:700 }}>
                             <thead><tr>
-                              <th style={{ width: 32 }}></th>
+                              <th style={{ width:32 }}></th>
                               <th>Nr partii</th><th>Data przyjęcia</th>
-                              <th style={{ textAlign: 'right' }}>Przyjęto (kg)</th>
-                              <th style={{ textAlign: 'right' }}>Korekty (kg)</th>
-                              <th style={{ textAlign: 'right' }}>Wydano (kg)</th>
-                              <th style={{ textAlign: 'right' }}>Dostępne (kg)</th>
-                              <th style={{ textAlign: 'right' }}>Wart. surowców</th>
+                              <th style={{ textAlign:'right' }}>Przyjęto (kg)</th>
+                              <th style={{ textAlign:'right' }}>Korekty (kg)</th>
+                              <th style={{ textAlign:'right' }}>Wydano (kg)</th>
+                              <th style={{ textAlign:'right' }}>Dostępne (kg)</th>
+                              <th style={{ textAlign:'right' }}>Wart. surowców</th>
                               <th>Lokalizacja</th><th>Zlecenie</th><th></th>
                             </tr></thead>
                             <tbody>
                               {partieList.map(g => {
-                                const avail = parseFloat(g.available_kg)
-                                const gCorrs = corrForGood(g.id)
-                                const gWz = wzForGood(g.id)
-                                const gExpanded = expandedGood === g.id
+                                const avail=parseFloat(g.available_kg)
+                                const gCorrs=corrForGood(g.id)
+                                const gWz=wzForGood(g.id)
+                                const gExpanded=expandedGood===g.id
                                 return (
                                   <React.Fragment key={g.id}>
-                                    <tr style={{ background: avail <= 0 ? '#F1EFE8' : '#fff' }}>
-                                      <td style={{ textAlign: 'center' }}>
-                                        {(gCorrs.length > 0 || gWz.length > 0) && (
-                                          <button onClick={() => setExpandedGood(gExpanded ? null : g.id)}
-                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#5F5E5A', padding: '1px 3px' }}>
-                                            {gExpanded ? '▲' : '▼'}
+                                    <tr style={{ background:avail<=0?'#F1EFE8':'#fff' }}>
+                                      <td style={{ textAlign:'center' }}>
+                                        {(gCorrs.length>0||gWz.length>0) && (
+                                          <button onClick={() => setExpandedGood(gExpanded?null:g.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:'#5F5E5A', padding:'1px 3px' }}>
+                                            {gExpanded?'▲':'▼'}
                                           </button>
                                         )}
                                       </td>
-                                      <td><span className="lot" style={{ fontSize: 11 }}>{g.lot_number}</span></td>
-                                      <td className="muted" style={{ fontSize: 11 }}>{g.received_date}</td>
-                                      <td style={{ textAlign: 'right', color: '#085041', fontWeight: 500, fontSize: 12 }}>{fmt3(g.original_kg)}</td>
-                                      <td style={{ textAlign: 'right', fontSize: 11, color: parseFloat(g.corrections_kg) < 0 ? '#A32D2D' : parseFloat(g.corrections_kg) > 0 ? '#085041' : '#888' }}>
-                                        {parseFloat(g.corrections_kg) !== 0 ? (parseFloat(g.corrections_kg) > 0 ? '+' : '') + fmt3(g.corrections_kg) : '—'}
+                                      <td><span className="lot" style={{ fontSize:11 }}>{g.lot_number}</span></td>
+                                      <td className="muted" style={{ fontSize:11 }}>{g.received_date}</td>
+                                      <td style={{ textAlign:'right', color:'#085041', fontWeight:500, fontSize:12 }}>{fmt3(g.original_kg)}</td>
+                                      <td style={{ textAlign:'right', fontSize:11, color:parseFloat(g.corrections_kg)<0?'#A32D2D':parseFloat(g.corrections_kg)>0?'#085041':'#888' }}>
+                                        {parseFloat(g.corrections_kg)!==0?(parseFloat(g.corrections_kg)>0?'+':'')+fmt3(g.corrections_kg):'—'}
                                       </td>
-                                      <td style={{ textAlign: 'right', color: '#633806', fontSize: 12 }}>{fmt3(g.issued_kg)}</td>
-                                      <td style={{ textAlign: 'right' }}>
-                                        <span style={{ fontWeight: 700, color: avail <= 0 ? '#888' : '#0F6E56', fontSize: 12 }}>{fmt3(avail)}</span>
+                                      <td style={{ textAlign:'right', color:'#633806', fontSize:12 }}>{fmt3(g.issued_kg)}</td>
+                                      <td style={{ textAlign:'right' }}>
+                                        <span style={{ fontWeight:700, color:avail<=0?'#888':'#0F6E56', fontSize:12 }}>{fmt3(avail)}</span>
                                       </td>
-                                      <td style={{ textAlign: 'right', fontSize: 11, color: '#3C3489' }}>
-                                        {(() => {
-                                          const total = batchValues[g.production_batch_id] || 0
-                                          const origKg = parseFloat(g.original_kg || 0)
-                                          const availKg = parseFloat(g.available_kg || 0)
-                                          if (total <= 0 || origKg <= 0) return '—'
-                                          const v = Math.round((availKg / origKg) * total * 100) / 100
-                                          return v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł'
-                                        })()}
+                                      <td style={{ textAlign:'right', fontSize:11, color:'#3C3489' }}>
+                                        {(() => { const total=batchValues[g.production_batch_id]||0; const origKg=parseFloat(g.original_kg||0); const availKg=parseFloat(g.available_kg||0); if(total<=0||origKg<=0) return '—'; const v=Math.round((availKg/origKg)*total*100)/100; return v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' })()}
                                       </td>
-                                      <td className="muted" style={{ fontSize: 11 }}>{g.location || '—'}</td>
-                                      <td style={{ fontSize: 11 }}>
-                                        {g.order_number ? <span className="lot" style={{ fontSize: 10 }}>{g.order_number}</span> : <span className="muted">—</span>}
-                                      </td>
+                                      <td className="muted" style={{ fontSize:11 }}>{g.location||'—'}</td>
+                                      <td style={{ fontSize:11 }}>{g.order_number?<span className="lot" style={{ fontSize:10 }}>{g.order_number}</span>:<span className="muted">—</span>}</td>
                                       <td>
-                                        <div className="flex" style={{ gap: 3 }}>
-                                          {canEdit && avail > 0 && <button className="btn btn-sm btn-primary" style={{ fontSize: 10, padding: '2px 7px' }} onClick={() => openWz(g)}>WZ</button>}
-                                          {canEdit && avail > 0 && <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 7px', background: '#FFF3E0', color: '#E65100', border: '0.5px solid #FFCC80' }} onClick={() => openCorr(g)}>Korekta</button>}
-                                          {isAdmin && <button className="btn btn-sm" style={{ fontSize: 10, padding: '2px 7px' }} onClick={() => openEdit(g)}>Edytuj</button>}
+                                        <div className="flex" style={{ gap:3 }}>
+                                          {canEdit && avail>0 && <button className="btn btn-sm btn-primary" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => openWz(g)}>WZ</button>}
+                                          {canEdit && avail>0 && <button className="btn btn-sm" style={{ fontSize:10, padding:'2px 7px', background:'#FFF3E0', color:'#E65100', border:'0.5px solid #FFCC80' }} onClick={() => openCorr(g)}>Korekta</button>}
+                                          {isAdmin && <button className="btn btn-sm" style={{ fontSize:10, padding:'2px 7px' }} onClick={() => openEdit(g)}>Edytuj</button>}
                                         </div>
                                       </td>
                                     </tr>
                                     {gExpanded && (
                                       <tr>
-                                        <td colSpan={11} style={{ padding: '6px 8px 8px 48px', background: '#F1EFE8' }}>
-                                          {gCorrs.length > 0 && (
-                                            <div style={{ marginBottom: 8 }}>
-                                              <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: '#E65100' }}>Historia korekt</div>
+                                        <td colSpan={11} style={{ padding:'6px 8px 8px 48px', background:'#F1EFE8' }}>
+                                          {gCorrs.length>0 && (
+                                            <div style={{ marginBottom:8 }}>
+                                              <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#E65100' }}>Historia korekt</div>
                                               {gCorrs.map(c => (
-                                                <div key={c.id} style={{ fontSize: 11, color: '#5F5E5A', padding: '3px 0', borderBottom: '0.5px solid #D3D1C7', display: 'flex', gap: 12 }}>
-                                                  <span><b>{CORR_LABELS[c.correction_type] || c.correction_type}</b>: {c.reason}</span>
-                                                  <span className={`badge ${parseFloat(c.delta_kg) < 0 ? 'b-err' : 'b-ok'}`} style={{ fontSize: 10 }}>{parseFloat(c.delta_kg) > 0 ? '+' : ''}{parseFloat(c.delta_kg).toFixed(3)} kg</span>
+                                                <div key={c.id} style={{ fontSize:11, color:'#5F5E5A', padding:'3px 0', borderBottom:'0.5px solid #D3D1C7', display:'flex', gap:12 }}>
+                                                  <span><b>{CORR_LABELS[c.correction_type]||c.correction_type}</b>: {c.reason}</span>
+                                                  <span className={`badge ${parseFloat(c.delta_kg)<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{parseFloat(c.delta_kg)>0?'+':''}{parseFloat(c.delta_kg).toFixed(3)} kg</span>
                                                   <span className="muted">{c.event_date}</span>
                                                 </div>
                                               ))}
                                             </div>
                                           )}
-                                          {gWz.length > 0 && (
+                                          {gWz.length>0 && (
                                             <div>
-                                              <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 4, color: '#0C447C' }}>Dokumenty WZ</div>
+                                              <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#0C447C' }}>Dokumenty WZ</div>
                                               {gWz.map(wz => (
-                                                <div key={wz.id} style={{ fontSize: 11, color: '#5F5E5A', padding: '3px 0', borderBottom: '0.5px solid #D3D1C7', display: 'flex', gap: 12 }}>
-                                                  <span className="lot" style={{ fontSize: 10 }}>{wz.wz_number}</span>
-                                                  <span>{wz.recipient || '—'}</span>
-                                                  <span style={{ fontWeight: 500 }}>{parseFloat(wz.quantity_kg).toFixed(3)} kg</span>
+                                                <div key={wz.id} style={{ fontSize:11, color:'#5F5E5A', padding:'4px 0', borderBottom:'0.5px solid #D3D1C7', display:'flex', gap:10, alignItems:'center' }}>
+                                                  <span className="lot" style={{ fontSize:10 }}>{wz.wz_number}</span>
+                                                  <span>{wz.recipient||'—'}</span>
+                                                  <span style={{ fontWeight:500 }}>{parseFloat(wz.quantity_kg).toFixed(3)} kg</span>
                                                   <span className="muted">{wz.issue_date}</span>
+                                                  <span style={{ flex:1 }} />
+                                                  {isAdmin && <button className="btn btn-sm" style={{ fontSize:10, padding:'1px 6px' }} onClick={() => openWzEdit(wz)}>Edytuj</button>}
+                                                  {isAdmin && <button className="btn btn-sm btn-danger" style={{ fontSize:10, padding:'1px 6px' }} onClick={() => setWzDeleteConfirm(wz)}>Usuń</button>}
                                                 </div>
                                               ))}
                                             </div>
@@ -667,25 +586,24 @@ export default function MagazynWG() {
                 </React.Fragment>
               )
             })}
-            {!loading && filteredProducts.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#888' }}>Brak towarów na magazynie</td></tr>}
+            {!loading && filteredProducts.length===0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:24, color:'#888' }}>Brak towarów na magazynie</td></tr>}
           </tbody>
         </table>
       </div>
 
-      {/* Modal przyjęcia */}
       <div className={`modal-overlay ${acceptModal?'open':''}`} onClick={e => e.target===e.currentTarget && setAcceptModal(false)}>
         <div className="modal">
           <div className="modal-title">Przyjęcie towaru na Magazyn Instant</div>
           {error && <div className="err-box">{error}</div>}
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom:10 }}>
             <label>Partia produkcyjna *</label>
             <select value={acceptForm.production_batch_id} onChange={e => handleBatchSelect(e.target.value)}>
               <option value="">— wybierz partię —</option>
               {prodBatches.map(pb => <option key={pb.id} value={pb.id}>{pb.lot_number} — {pb.recipe_name} ({pb.quantity_kg} kg) · {pb.production_date}</option>)}
             </select>
-            {selectedProdBatch && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Data produkcji: <b>{selectedProdBatch.production_date}</b></div>}
+            {selectedProdBatch && <div className="muted" style={{ fontSize:12, marginTop:4 }}>Data produkcji: <b>{selectedProdBatch.production_date}</b></div>}
           </div>
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom:10 }}>
             <label>Powiąż ze zleceniem (opcjonalne)</label>
             <select value={acceptForm.order_id} onChange={e => af('order_id', e.target.value)}>
               <option value="">— brak powiązania —</option>
@@ -707,11 +625,10 @@ export default function MagazynWG() {
         </div>
       </div>
 
-      {/* Modal edycji */}
       <div className={`modal-overlay ${editModal?'open':''}`} onClick={e => e.target===e.currentTarget && setEditModal(false)}>
-        <div className="modal" style={{ maxWidth: 480 }}>
+        <div className="modal" style={{ maxWidth:480 }}>
           <div className="modal-title">Edycja przyjęcia — {editGood?.lot_number}</div>
-          <div className="info-box" style={{ marginBottom: 10 }}>Edycja dostępna tylko dla Admina.</div>
+          <div className="info-box" style={{ marginBottom:10 }}>Edycja dostępna tylko dla Admina.</div>
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
             <div><label>Data przyjęcia</label><input type="date" value={editForm.received_date||''} onChange={e => setEditForm(p=>({...p,received_date:e.target.value}))} /></div>
@@ -728,11 +645,10 @@ export default function MagazynWG() {
         </div>
       </div>
 
-      {/* Modal korekty */}
       <div className={`modal-overlay ${corrModal?'open':''}`} onClick={e => e.target===e.currentTarget && setCorrModal(false)}>
-        <div className="modal" style={{ maxWidth: 480 }}>
+        <div className="modal" style={{ maxWidth:480 }}>
           <div className="modal-title">Korekta stanu — {corrGood?.lot_number}</div>
-          {corrGood && <div style={{ background: '#F1EFE8', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}><b>{corrGood.recipe_code}</b> — {corrGood.recipe_name}<br />Dostępne: <b>{fmt3(corrGood.available_kg)} kg</b></div>}
+          {corrGood && <div style={{ background:'#F1EFE8', borderRadius:8, padding:10, marginBottom:12, fontSize:13 }}><b>{corrGood.recipe_code}</b> — {corrGood.recipe_name}<br />Dostępne: <b>{fmt3(corrGood.available_kg)} kg</b></div>}
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
             <div><label>Typ korekty</label>
@@ -740,14 +656,14 @@ export default function MagazynWG() {
                 {Object.entries(CORR_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </div>
-            {corrForm.correction_type !== 'utylizacja' && (
+            {corrForm.correction_type!=='utylizacja' && (
               <div><label>Korekta ilości (kg) — ujemna = ubytek</label>
                 <input type="number" step="0.001" value={corrForm.delta_kg} onChange={e => setCorrForm(p=>({...p,delta_kg:e.target.value}))} placeholder="np. -10 lub +5" />
               </div>
             )}
           </div>
-          {corrForm.correction_type === 'utylizacja' && <div className="warn-box">Utylizacja pełna — cały dostępny stan zostanie wyzerowany.</div>}
-          <div style={{ marginBottom: 10 }}><label>Przyczyna *</label><input value={corrForm.reason} onChange={e => setCorrForm(p=>({...p,reason:e.target.value}))} placeholder="np. zniszczenie opakowania" /></div>
+          {corrForm.correction_type==='utylizacja' && <div className="warn-box">Utylizacja pełna — cały dostępny stan zostanie wyzerowany.</div>}
+          <div style={{ marginBottom:10 }}><label>Przyczyna *</label><input value={corrForm.reason} onChange={e => setCorrForm(p=>({...p,reason:e.target.value}))} placeholder="np. zniszczenie opakowania" /></div>
           <div><label>Data zdarzenia</label><input type="date" value={corrForm.event_date} onChange={e => setCorrForm(p=>({...p,event_date:e.target.value}))} /></div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setCorrModal(false)}>Anuluj</button>
@@ -756,58 +672,56 @@ export default function MagazynWG() {
         </div>
       </div>
 
-      {/* Modal inwentura */}
       <div className={`modal-overlay ${inwenturaModal?'open':''}`} onClick={e => e.target===e.currentTarget && setInwenturaModal(false)}>
-        <div className="modal" style={{ maxWidth: 640 }}>
+        <div className="modal" style={{ maxWidth:640 }}>
           <div className="modal-title">Inwentura Magazynu Instant</div>
-          <div className="info-box" style={{ marginBottom: 10 }}>Wpisz rzeczywisty stan każdej partii. Różnice zostaną zapisane jako korekty inwentury.</div>
+          <div className="info-box" style={{ marginBottom:10 }}>Wpisz rzeczywisty stan każdej partii. Różnice zostaną zapisane jako korekty inwentury.</div>
           {error && <div className="err-box">{error}</div>}
-          <div style={{ marginBottom: 12 }}><label>Data inwentury</label><input type="date" value={inwenturaDate} onChange={e => setInwenturaDate(e.target.value)} style={{ width: 180 }} /></div>
-          <div style={{ overflowY: 'auto', maxHeight: 400, marginBottom: 10 }}>
-            <table style={{ width: '100%' }}>
-              <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 5 }}><tr>
+          <div style={{ marginBottom:12 }}><label>Data inwentury</label><input type="date" value={inwenturaDate} onChange={e => setInwenturaDate(e.target.value)} style={{ width:180 }} /></div>
+          <div style={{ overflowY:'auto', maxHeight:400, marginBottom:10 }}>
+            <table style={{ width:'100%' }}>
+              <thead style={{ position:'sticky', top:0, background:'#fff', zIndex:5 }}><tr>
                 <th>Receptura</th><th>Nr partii</th>
-                <th style={{ textAlign: 'right' }}>Stan systemowy (kg)</th>
-                <th style={{ textAlign: 'right' }}>Stan rzeczywisty (kg)</th>
-                <th style={{ textAlign: 'right' }}>Różnica</th>
+                <th style={{ textAlign:'right' }}>Stan systemowy (kg)</th>
+                <th style={{ textAlign:'right' }}>Stan rzeczywisty (kg)</th>
+                <th style={{ textAlign:'right' }}>Różnica</th>
               </tr></thead>
               <tbody>
                 {inwenturaRows.map((r, idx) => {
-                  const diff = parseFloat(r.inwentura_kg || 0) - r.available_kg
+                  const diff = parseFloat(r.inwentura_kg||0) - r.available_kg
                   return (
-                    <tr key={r.id} style={{ background: Math.abs(diff) > 0.001 ? '#FAEEDA33' : undefined }}>
-                      <td style={{ fontSize: 12 }}><span className="lot" style={{ fontSize: 10 }}>{r.recipe_code}</span> {r.recipe_name}</td>
-                      <td><span className="lot" style={{ fontSize: 10 }}>{r.lot_number}</span></td>
-                      <td style={{ textAlign: 'right', fontSize: 12 }}>{r.available_kg.toFixed(3)}</td>
-                      <td style={{ textAlign: 'right' }}>
+                    <tr key={r.id} style={{ background:Math.abs(diff)>0.001?'#FAEEDA33':undefined }}>
+                      <td style={{ fontSize:12 }}><span className="lot" style={{ fontSize:10 }}>{r.recipe_code}</span> {r.recipe_name}</td>
+                      <td><span className="lot" style={{ fontSize:10 }}>{r.lot_number}</span></td>
+                      <td style={{ textAlign:'right', fontSize:12 }}>{r.available_kg.toFixed(3)}</td>
+                      <td style={{ textAlign:'right' }}>
                         <input type="number" step="0.001" min="0" value={r.inwentura_kg}
-                          onChange={e => setInwenturaRows(prev => prev.map((row, i) => i === idx ? {...row, inwentura_kg: e.target.value} : row))}
-                          style={{ width: 100, textAlign: 'right', fontSize: 12, padding: '3px 6px' }} />
+                          onChange={e => setInwenturaRows(prev => prev.map((row,i) => i===idx?{...row,inwentura_kg:e.target.value}:row))}
+                          style={{ width:100, textAlign:'right', fontSize:12, padding:'3px 6px' }} />
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 500, color: Math.abs(diff) > 0.001 ? (diff < 0 ? '#A32D2D' : '#085041') : '#888', fontSize: 12 }}>
-                        {Math.abs(diff) > 0.001 ? (diff > 0 ? '+' : '') + diff.toFixed(3) : '—'}
+                      <td style={{ textAlign:'right', fontWeight:500, color:Math.abs(diff)>0.001?(diff<0?'#A32D2D':'#085041'):'#888', fontSize:12 }}>
+                        {Math.abs(diff)>0.001?(diff>0?'+':'')+diff.toFixed(3):'—'}
                       </td>
                     </tr>
                   )
                 })}
-                {inwenturaRows.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: 16, color: '#888' }}>Brak partii z dostępnym stanem</td></tr>}
+                {inwenturaRows.length===0 && <tr><td colSpan={5} style={{ textAlign:'center', padding:16, color:'#888' }}>Brak partii z dostępnym stanem</td></tr>}
               </tbody>
             </table>
           </div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setInwenturaModal(false)}>Anuluj</button>
             <button className="btn btn-primary" onClick={saveInwentura} disabled={savingInwentura}>
-              {savingInwentura ? 'Zapisywanie...' : `Zapisz inwenturę (${inwenturaRows.filter(r => Math.abs(parseFloat(r.inwentura_kg||0) - r.available_kg) > 0.001).length} korekt)`}
+              {savingInwentura?'Zapisywanie...':`Zapisz inwenturę (${inwenturaRows.filter(r=>Math.abs(parseFloat(r.inwentura_kg||0)-r.available_kg)>0.001).length} korekt)`}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Modal WZ */}
       <div className={`modal-overlay ${wzModal?'open':''}`} onClick={e => e.target===e.currentTarget && setWzModal(false)}>
         <div className="modal">
           <div className="modal-title">Wystawienie dokumentu WZ</div>
-          {wzGood && <div style={{ background: '#F1EFE8', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}><b>{wzGood.lot_number}</b> — {wzGood.recipe_name}<br />Dostępne: <b>{fmt3(wzGood.available_kg)} kg</b>{wzGood.order_number && <span> · Zlecenie: <b>{wzGood.order_number}</b></span>}</div>}
+          {wzGood && <div style={{ background:'#F1EFE8', borderRadius:8, padding:10, marginBottom:12, fontSize:13 }}><b>{wzGood.lot_number}</b> — {wzGood.recipe_name}<br />Dostępne: <b>{fmt3(wzGood.available_kg)} kg</b>{wzGood.order_number && <span> · Zlecenie: <b>{wzGood.order_number}</b></span>}</div>}
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
             <div><label>Data wydania</label><input type="date" value={wzForm.issue_date} onChange={e => wf('issue_date', e.target.value)} /></div>
@@ -821,6 +735,38 @@ export default function MagazynWG() {
           <div className="modal-footer">
             <button className="btn" onClick={() => setWzModal(false)}>Anuluj</button>
             <button className="btn btn-primary" onClick={saveWz} disabled={saving}>{saving?'Zapisywanie...':'Wystaw WZ i drukuj'}</button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`modal-overlay ${wzEditModal?'open':''}`} onClick={e => e.target===e.currentTarget && setWzEditModal(false)}>
+        <div className="modal" style={{ maxWidth:480 }}>
+          <div className="modal-title">Edycja WZ — {wzEditDoc?.wz_number}</div>
+          <div className="info-box" style={{ marginBottom:10 }}>Edycja dostępna tylko dla Admina.</div>
+          {error && <div className="err-box">{error}</div>}
+          <div className="fr">
+            <div><label>Data wydania</label><input type="date" value={wzEditForm.issue_date||''} onChange={e => setWzEditForm(p=>({...p,issue_date:e.target.value}))} /></div>
+            <div><label>Ilość (kg)</label><input type="number" step="0.001" value={wzEditForm.quantity_kg||''} onChange={e => setWzEditForm(p=>({...p,quantity_kg:e.target.value}))} /></div>
+          </div>
+          <div className="fr">
+            <div><label>Odbiorca</label><input value={wzEditForm.recipient||''} onChange={e => setWzEditForm(p=>({...p,recipient:e.target.value}))} placeholder="Nazwa firmy / osoby" /></div>
+            <div><label>Przewoźnik</label><input value={wzEditForm.carrier||''} onChange={e => setWzEditForm(p=>({...p,carrier:e.target.value}))} placeholder="np. DHL" /></div>
+          </div>
+          <div><label>Uwagi</label><input value={wzEditForm.notes||''} onChange={e => setWzEditForm(p=>({...p,notes:e.target.value}))} placeholder="opcjonalne" /></div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setWzEditModal(false)}>Anuluj</button>
+            <button className="btn btn-primary" onClick={saveWzEdit} disabled={savingWzEdit}>{savingWzEdit?'Zapisywanie...':'Zapisz zmiany'}</button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`modal-overlay ${wzDeleteConfirm?'open':''}`} onClick={e => e.target===e.currentTarget && setWzDeleteConfirm(null)}>
+        <div className="modal" style={{ maxWidth:420 }}>
+          <div className="modal-title">Usuń dokument WZ</div>
+          <div className="warn-box">Czy na pewno chcesz usunąć dokument <b>{wzDeleteConfirm?.wz_number}</b>?<br/>Ilość wydana ({wzDeleteConfirm?.quantity_kg} kg) wróci na stan magazynowy.</div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setWzDeleteConfirm(null)}>Anuluj</button>
+            <button className="btn btn-danger" onClick={() => deleteWz(wzDeleteConfirm)}>Tak, usuń</button>
           </div>
         </div>
       </div>
