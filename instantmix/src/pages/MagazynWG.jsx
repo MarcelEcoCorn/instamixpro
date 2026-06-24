@@ -132,20 +132,31 @@ export default function MagazynWG() {
     if (!acceptForm.quantity_kg) { setError('Podaj ilość'); return }
     if (selectedProdBatch?.production_date && acceptForm.received_date < selectedProdBatch.production_date) { setError('Data przyjęcia nie może być wcześniejsza niż data produkcji'); return }
     setSaving(true); setError('')
-    const { error: err } = await supabase.from('finished_goods').insert({ production_batch_id: acceptForm.production_batch_id, order_id: acceptForm.order_id || null, received_date: acceptForm.received_date, quantity_kg: parseFloat(acceptForm.quantity_kg), location: acceptForm.location || null, notes: acceptForm.notes || null, created_by: profile?.id })
+    const qty = parseFloat(acceptForm.quantity_kg)
+    const { error: err } = await supabase.from('finished_goods').insert({ production_batch_id: acceptForm.production_batch_id, order_id: acceptForm.order_id || null, received_date: acceptForm.received_date, quantity_kg: qty, location: acceptForm.location || null, notes: acceptForm.notes || null, form: 'luz', unit_type: 'big_bag', unit_count: 1, unit_weight_kg: qty, created_by: profile?.id })
     if (err) { setError(err.message); setSaving(false); return }
-    if (acceptForm.order_id) await supabase.from('orders').update({ status: 'zrealizowane', updated_at: new Date().toISOString() }).eq('id', acceptForm.order_id)
+    if (acceptForm.order_id) await supabase.from('orders').update({ status: 'w_realizacji', updated_at: new Date().toISOString() }).eq('id', acceptForm.order_id)
     setSaving(false); setAcceptModal(false)
     setAcceptForm({ production_batch_id: '', order_id: '', received_date: new Date().toISOString().slice(0, 10), quantity_kg: '', location: '', notes: '' })
     setSelectedProdBatch(null); load()
   }
 
-  function openEdit(good) { setEditGood(good); setEditForm({ received_date: good.received_date, quantity_kg: good.original_kg, location: good.location || '', notes: good.notes || '' }); setError(''); setEditModal(true) }
+  function openEdit(good) { setEditGood(good); setEditForm({ received_date: good.received_date, quantity_kg: good.original_kg, location: good.location || '', notes: good.notes || '', form: good.form || 'luz', unit_type: good.unit_type || 'big_bag', unit_weight_kg: good.unit_weight_kg ?? '', unit_count: good.unit_count ?? '' }); setError(''); setEditModal(true) }
 
   async function saveEdit() {
     if (!editForm.received_date || !editForm.quantity_kg) { setError('Uzupełnij wymagane pola'); return }
     setSavingEdit(true); setError('')
-    const { error: err } = await supabase.from('finished_goods').update({ received_date: editForm.received_date, quantity_kg: parseFloat(editForm.quantity_kg), location: editForm.location || null, notes: editForm.notes || null, updated_at: new Date().toISOString() }).eq('id', editGood.id)
+    const { error: err } = await supabase.from('finished_goods').update({
+      received_date: editForm.received_date,
+      quantity_kg: parseFloat(editForm.quantity_kg),
+      location: editForm.location || null,
+      notes: editForm.notes || null,
+      form: editForm.form || 'luz',
+      unit_type: editForm.unit_type || 'big_bag',
+      unit_weight_kg: editForm.unit_weight_kg === '' ? null : parseFloat(editForm.unit_weight_kg),
+      unit_count: editForm.unit_count === '' ? null : parseInt(editForm.unit_count),
+      updated_at: new Date().toISOString()
+    }).eq('id', editGood.id)
     setSavingEdit(false)
     if (err) { setError(err.message); return }
     setEditModal(false); load()
@@ -322,6 +333,19 @@ export default function MagazynWG() {
   const corrForGood = (goodId) => corrections.filter(c => c.finished_good_id === goodId)
   const wzForGood = (goodId) => wzDocs.filter(w => w.finished_good_id === goodId)
   const fmt3 = v => parseFloat(v || 0).toFixed(3)
+
+  // opis formy towaru: luz = big bag, spakowane = worki/BB o danej wadze
+  function formLabel(g) {
+    if (g?.form === 'spakowane') {
+      const cnt = g.unit_count || 0
+      const w = parseFloat(g.unit_weight_kg || 0)
+      const unit = g.unit_type === 'worek' ? 'wor.' : 'BB'
+      return { text: `${cnt} × ${w.toLocaleString('pl-PL')} kg ${unit}`, cls: 'b-purple' }
+    }
+    // domyślnie luz (big bag)
+    const w = parseFloat(g?.unit_weight_kg || g?.original_kg || 0)
+    return { text: `1 BB · ${w.toLocaleString('pl-PL')} kg`, cls: 'b-info' }
+  }
 
   return (
     <div>
@@ -517,7 +541,10 @@ export default function MagazynWG() {
                                           </button>
                                         )}
                                       </td>
-                                      <td><span className="lot" style={{ fontSize:11 }}>{g.lot_number}</span></td>
+                                      <td>
+                                        <span className="lot" style={{ fontSize:11 }}>{g.lot_number}</span>
+                                        <div style={{ marginTop:2 }}><span className={`badge ${formLabel(g).cls}`} style={{ fontSize:9 }}>{formLabel(g).text}</span></div>
+                                      </td>
                                       <td className="muted" style={{ fontSize:11 }}>{g.received_date}</td>
                                       <td style={{ textAlign:'right', color:'#085041', fontWeight:500, fontSize:12 }}>{fmt3(g.original_kg)}</td>
                                       <td style={{ textAlign:'right', fontSize:11, color:parseFloat(g.corrections_kg)<0?'#A32D2D':parseFloat(g.corrections_kg)>0?'#085041':'#888' }}>
@@ -618,6 +645,9 @@ export default function MagazynWG() {
             <div><label>Lokalizacja magazynowa</label><input value={acceptForm.location} onChange={e => af('location', e.target.value)} placeholder="np. Regał A-3" /></div>
             <div><label>Uwagi</label><input value={acceptForm.notes} onChange={e => af('notes', e.target.value)} placeholder="opcjonalne" /></div>
           </div>
+          <div className="muted" style={{ fontSize:11, marginBottom:8, padding:'6px 10px', background:'#E6F1FB', borderRadius:6, color:'#0C447C' }}>
+            Towar przyjmowany jest jako <b>1 big bag (luz)</b> o podanej wadze. Podział na worki nastąpi w pakowaniu.
+          </div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setAcceptModal(false)}>Anuluj</button>
             <button className="btn btn-primary" onClick={saveAccept} disabled={saving}>{saving?'Zapisywanie...':'Przyjmij na magazyn'}</button>
@@ -637,6 +667,28 @@ export default function MagazynWG() {
           <div className="fr">
             <div><label>Lokalizacja</label><input value={editForm.location||''} onChange={e => setEditForm(p=>({...p,location:e.target.value}))} /></div>
             <div><label>Uwagi</label><input value={editForm.notes||''} onChange={e => setEditForm(p=>({...p,notes:e.target.value}))} /></div>
+          </div>
+          <div style={{ background:'#F7F6F1', border:'0.5px solid #E3E1D8', borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:'#085041', marginBottom:8 }}>Forma towaru na magazynie</div>
+            <div className="fr" style={{ marginBottom:8 }}>
+              <div><label>Forma</label>
+                <select value={editForm.form||'luz'} onChange={e => setEditForm(p=>({...p, form:e.target.value, unit_type: e.target.value==='luz' ? 'big_bag' : (p.unit_type==='big_bag'?'worek':p.unit_type) }))}>
+                  <option value="luz">Luz (big bag)</option>
+                  <option value="spakowane">Spakowane</option>
+                </select>
+              </div>
+              <div><label>Rodzaj jednostki</label>
+                <select value={editForm.unit_type||'big_bag'} onChange={e => setEditForm(p=>({...p,unit_type:e.target.value}))}>
+                  <option value="big_bag">Big bag</option>
+                  <option value="worek">Worek</option>
+                </select>
+              </div>
+            </div>
+            <div className="fr" style={{ marginBottom:0 }}>
+              <div><label>Liczba jednostek</label><input type="number" min="0" step="1" value={editForm.unit_count??''} onChange={e => setEditForm(p=>({...p,unit_count:e.target.value}))} placeholder="np. 15" /></div>
+              <div><label>Waga 1 jednostki (kg)</label><input type="number" min="0" step="0.001" value={editForm.unit_weight_kg??''} onChange={e => setEditForm(p=>({...p,unit_weight_kg:e.target.value}))} placeholder="np. 20" /></div>
+            </div>
+            <div className="muted" style={{ fontSize:11, marginTop:6 }}>Np. „1 big bag 700 kg" lub „15 worków × 20 kg". Pole opisowe — nie zmienia ilości (kg).</div>
           </div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setEditModal(false)}>Anuluj</button>
