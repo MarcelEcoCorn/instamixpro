@@ -538,7 +538,7 @@ export default function MagazynWG() {
                                   <React.Fragment key={g.id}>
                                     <tr style={{ background:avail<=0?'#F1EFE8':'#fff' }}>
                                       <td style={{ textAlign:'center' }}>
-                                        {(gCorrs.length>0||gWz.length>0) && (
+                                        {(gCorrs.length>0||gWz.length>0||g.pallets>0) && (
                                           <button onClick={() => setExpandedGood(gExpanded?null:g.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:'#5F5E5A', padding:'1px 3px' }}>
                                             {gExpanded?'▲':'▼'}
                                           </button>
@@ -573,6 +573,48 @@ export default function MagazynWG() {
                                     {gExpanded && (
                                       <tr>
                                         <td colSpan={11} style={{ padding:'6px 8px 8px 48px', background:'#F1EFE8' }}>
+                                          {g.pallets>0 && (() => {
+                                            const P = parseInt(g.pallets)||0
+                                            const B = g.bags_per_pallet ? parseInt(g.bags_per_pallet) : (g.unit_count && P ? Math.round(parseInt(g.unit_count)/P) : 0)
+                                            const W = parseFloat(g.unit_weight_kg)||0
+                                            const sing = g.unit_type==='worek' ? 'worek' : 'big bag'
+                                            const plur = g.unit_type==='worek' ? 'worki' : 'big bagi'
+                                            const uname = n => n===1 ? sing : plur
+                                            const totalUnits = parseInt(g.unit_count)|| (P*B)
+                                            const totalVal = (() => { const total=batchValues[g.production_batch_id]||0; const origKg=parseFloat(g.original_kg||0); const availKg=parseFloat(g.available_kg||0); if(total<=0||origKg<=0) return 0; return Math.round((availKg/origKg)*total*100)/100 })()
+                                            const perKg = B*W
+                                            const perVal = P>0 ? totalVal/P : 0
+                                            const fmtZl = v => v>0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
+                                            return (
+                                              <div style={{ marginBottom:8 }}>
+                                                <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#3C3489' }}>Rozbicie na palety</div>
+                                                <table style={{ width:'auto', minWidth:440 }}>
+                                                  <thead><tr>
+                                                    <th>Paleta</th>
+                                                    <th style={{ textAlign:'right' }}>Jednostki</th>
+                                                    <th style={{ textAlign:'right' }}>Waga (kg)</th>
+                                                    <th style={{ textAlign:'right' }}>Wart. surowców</th>
+                                                  </tr></thead>
+                                                  <tbody>
+                                                    <tr style={{ fontWeight:600, background:'#EEEDFE' }}>
+                                                      <td>Razem: {P} pal</td>
+                                                      <td style={{ textAlign:'right' }}>{totalUnits} {uname(totalUnits)}</td>
+                                                      <td style={{ textAlign:'right' }}>{fmt3(P*perKg)}</td>
+                                                      <td style={{ textAlign:'right' }}>{fmtZl(totalVal)}</td>
+                                                    </tr>
+                                                    {Array.from({ length:P }).map((_,i) => (
+                                                      <tr key={i}>
+                                                        <td className="muted">Paleta {i+1}</td>
+                                                        <td style={{ textAlign:'right' }}>{B} {uname(B)}</td>
+                                                        <td style={{ textAlign:'right' }}>{fmt3(perKg)}</td>
+                                                        <td style={{ textAlign:'right', color:'#3C3489' }}>{fmtZl(perVal)}</td>
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            )
+                                          })()}
                                           {gCorrs.length>0 && (
                                             <div style={{ marginBottom:8 }}>
                                               <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#E65100' }}>Historia korekt</div>
