@@ -26,7 +26,7 @@ export default function Kalkulator() {
   const [packSel, setPackSel] = useState(null)
   const [packLuz, setPackLuz] = useState([])
   const [packDone, setPackDone] = useState(0)
-  const [packForm, setPackForm] = useState({ unit_type:'worek', unit_count:'', unit_weight_kg:'', location:'', notes:'' })
+  const [packForm, setPackForm] = useState({ unit_type:'worek', pallets:'', bags_per_pallet:'', unit_weight_kg:'', location:'', notes:'' })
   const [packSaving, setPackSaving] = useState(false)
   const [packError, setPackError] = useState('')
   const [packMsg, setPackMsg] = useState('')
@@ -306,14 +306,16 @@ ${rows}
     setPackSel(o); setPackError(''); setPackMsg('')
     setPackForm({
       unit_type: 'worek',
-      unit_count: (o.pallets && o.bags_per_pallet) ? String(o.pallets * o.bags_per_pallet) : '',
+      pallets: o.pallets != null ? String(o.pallets) : '',
+      bags_per_pallet: o.bags_per_pallet != null ? String(o.bags_per_pallet) : '',
       unit_weight_kg: o.bag_weight_kg != null ? String(o.bag_weight_kg) : '',
       location: '', notes: ''
     })
     await loadPackData(o)
   }
 
-  const packKg = (parseFloat(packForm.unit_count) || 0) * (parseFloat(packForm.unit_weight_kg) || 0)
+  const packUnits = (parseFloat(packForm.pallets) || 0) * (parseFloat(packForm.bags_per_pallet) || 0)
+  const packKg = packUnits * (parseFloat(packForm.unit_weight_kg) || 0)
   const luzTotal = packLuz.reduce((s,g) => s + parseFloat(g.available_kg || 0), 0)
   const packRemaining = packSel ? Math.max(0, parseFloat(packSel.quantity_kg) - packDone) : 0
 
@@ -358,7 +360,9 @@ ${rows}
       notes: packForm.notes || null,
       form: 'spakowane',
       unit_type: packForm.unit_type,
-      unit_count: parseInt(packForm.unit_count),
+      pallets: packForm.pallets === '' ? null : parseInt(packForm.pallets),
+      bags_per_pallet: packForm.bags_per_pallet === '' ? null : parseInt(packForm.bags_per_pallet),
+      unit_count: packUnits || null,
       unit_weight_kg: parseFloat(packForm.unit_weight_kg),
       packing_operation_id: op.id,
       created_by: profile?.id
@@ -370,10 +374,10 @@ ${rows}
       await supabase.from('orders').update({ status:'zrealizowane', updated_at: new Date().toISOString() }).eq('id', packSel.id)
     }
     setPackSaving(false)
-    setPackMsg(`Spakowano ${kg.toLocaleString('pl-PL')} kg (${packForm.unit_count} × ${packForm.unit_weight_kg} kg ${packForm.unit_type==='worek'?'worki':'big bagi'}).`)
+    setPackMsg(`Spakowano ${kg.toLocaleString('pl-PL')} kg (${packForm.pallets||0} pal × ${packForm.bags_per_pallet||0} × ${packForm.unit_weight_kg} kg ${packForm.unit_type==='worek'?'worki':'big bagi'}).`)
     await loadPackData(packSel)
     await loadPackOrders()
-    setPackForm(p => ({ ...p, unit_count:'', notes:'' }))
+    setPackForm(p => ({ ...p, pallets:'', notes:'' }))
   }
 
   if (mode === 'pakowanie') {
@@ -454,15 +458,16 @@ ${rows}
                     <option value="worek">Worek</option><option value="big_bag">Big bag</option>
                   </select>
                 </div>
-                <div><label>Liczba jednostek</label><input type="number" min="0" step="1" value={packForm.unit_count} onChange={e => setPackForm(p => ({ ...p, unit_count:e.target.value }))} placeholder="np. 40" /></div>
-                <div><label>Waga 1 jednostki (kg)</label><input type="number" min="0" step="0.001" value={packForm.unit_weight_kg} onChange={e => setPackForm(p => ({ ...p, unit_weight_kg:e.target.value }))} placeholder="np. 25" /></div>
+                <div><label>Palety</label><input type="number" min="0" step="1" value={packForm.pallets} onChange={e => setPackForm(p => ({ ...p, pallets:e.target.value }))} placeholder="np. 1" /></div>
+                <div><label>Jednostek na palecie</label><input type="number" min="0" step="1" value={packForm.bags_per_pallet} onChange={e => setPackForm(p => ({ ...p, bags_per_pallet:e.target.value }))} placeholder="np. 40" /></div>
+                <div><label>Waga 1 jednostki (kg)</label><input type="number" min="0" step="0.001" value={packForm.unit_weight_kg} onChange={e => setPackForm(p => ({ ...p, unit_weight_kg:e.target.value }))} placeholder="np. 20" /></div>
               </div>
               <div className="fr">
                 <div><label>Lokalizacja (opcjonalnie)</label><input value={packForm.location} onChange={e => setPackForm(p => ({ ...p, location:e.target.value }))} placeholder="np. Regał B-1" /></div>
                 <div><label>Uwagi</label><input value={packForm.notes} onChange={e => setPackForm(p => ({ ...p, notes:e.target.value }))} placeholder="opcjonalne" /></div>
               </div>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:8 }}>
-                <span style={{ fontSize:13 }}>Do spakowania w tej operacji: <b style={{ color:'#085041' }}>{packKg ? packKg.toLocaleString('pl-PL')+' kg' : '—'}</b></span>
+                <span style={{ fontSize:13 }}>{packUnits > 0 ? `${packUnits} szt. · ` : ''}Do spakowania w tej operacji: <b style={{ color:'#085041' }}>{packKg ? packKg.toLocaleString('pl-PL')+' kg' : '—'}</b></span>
                 {canPack && <button className="btn btn-primary" onClick={doPack} disabled={packSaving || !packKg}>{packSaving?'Pakowanie...':'Spakuj'}</button>}
               </div>
               {packKg > packRemaining && packRemaining > 0 && <div className="muted" style={{ fontSize:11, marginTop:6, color:'#BA7517' }}>Uwaga: pakujesz więcej niż pozostało do celu zlecenia.</div>}
