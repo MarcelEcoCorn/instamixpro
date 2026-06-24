@@ -163,7 +163,9 @@ export default function MagazynWG() {
       form: editForm.form || 'luz',
       unit_type: editForm.unit_type || 'big_bag',
       unit_weight_kg: editForm.unit_weight_kg === '' ? null : parseFloat(editForm.unit_weight_kg),
-      unit_count: editForm.unit_count === '' ? null : parseInt(editForm.unit_count),
+      unit_count: editForm.form === 'spakowane'
+        ? (((parseInt(editForm.pallets)||0) * (parseInt(editForm.bags_per_pallet)||0)) || null)
+        : 1,
       pallets: editForm.pallets === '' ? null : parseInt(editForm.pallets),
       bags_per_pallet: editForm.bags_per_pallet === '' ? null : parseInt(editForm.bags_per_pallet),
       updated_at: new Date().toISOString()
@@ -347,16 +349,18 @@ export default function MagazynWG() {
 
   // opis formy towaru: luz = big bag, spakowane = worki/BB o danej wadze
   function formLabel(g) {
+    const w = parseFloat(g?.unit_weight_kg || 0)
+    const avail = parseFloat(g?.available_kg ?? g?.original_kg ?? 0)
     if (g?.form === 'spakowane') {
-      const cnt = g.unit_count || 0
-      const w = parseFloat(g.unit_weight_kg || 0)
+      const cnt = w > 0 ? Math.round(avail / w) : (g.unit_count || 0)
+      const B = g.bags_per_pallet ? parseInt(g.bags_per_pallet) : 0
+      const pal = B > 0 ? Math.ceil(cnt / B) : (g.pallets || 0)
       const unit = g.unit_type === 'worek' ? 'wor.' : 'BB'
-      const pal = g.pallets ? `${g.pallets} pal · ` : ''
-      return { text: `${pal}${cnt} × ${w.toLocaleString('pl-PL')} kg ${unit}`, cls: 'b-purple' }
+      const palStr = pal ? `${pal} pal · ` : ''
+      return { text: `${palStr}${cnt} × ${w.toLocaleString('pl-PL')} kg ${unit}`, cls: 'b-purple' }
     }
-    // domyślnie luz (big bag)
-    const w = parseFloat(g?.unit_weight_kg || g?.original_kg || 0)
-    return { text: `1 BB · ${w.toLocaleString('pl-PL')} kg`, cls: 'b-info' }
+    // luz (big bag) — pozostała waga
+    return { text: `1 BB · ${avail.toLocaleString('pl-PL')} kg`, cls: 'b-info' }
   }
 
   return (
@@ -583,21 +587,26 @@ export default function MagazynWG() {
                                       <tr>
                                         <td colSpan={11} style={{ padding:'6px 8px 8px 48px', background:'#F1EFE8' }}>
                                           {g.pallets>0 && (() => {
-                                            const P = parseInt(g.pallets)||0
-                                            const B = g.bags_per_pallet ? parseInt(g.bags_per_pallet) : (g.unit_count && P ? Math.round(parseInt(g.unit_count)/P) : 0)
                                             const W = parseFloat(g.unit_weight_kg)||0
+                                            const B = g.bags_per_pallet ? parseInt(g.bags_per_pallet) : (g.pallets ? Math.round((parseInt(g.unit_count)||0)/parseInt(g.pallets)) : 0)
+                                            const avail = parseFloat(g.available_kg||0)
+                                            const totalUnits = W>0 ? Math.round(avail/W) : (parseInt(g.unit_count)||0)
+                                            const fullP = B>0 ? Math.floor(totalUnits/B) : 0
+                                            const rem = B>0 ? (totalUnits - fullP*B) : 0
+                                            const palCount = fullP + (rem>0?1:0)
                                             const sing = g.unit_type==='worek' ? 'worek' : 'big bag'
                                             const plur = g.unit_type==='worek' ? 'worki' : 'big bagi'
                                             const uname = n => n===1 ? sing : plur
-                                            const totalUnits = parseInt(g.unit_count)|| (P*B)
-                                            const totalVal = (() => { const total=batchValues[g.production_batch_id]||0; const origKg=parseFloat(g.original_kg||0); const availKg=parseFloat(g.available_kg||0); if(total<=0||origKg<=0) return 0; return Math.round((availKg/origKg)*total*100)/100 })()
-                                            const perKg = B*W
-                                            const perVal = P>0 ? totalVal/P : 0
+                                            const totalVal = (() => { const total=batchValues[g.production_batch_id]||0; const origKg=parseFloat(g.original_kg||0); if(total<=0||origKg<=0) return 0; return Math.round((avail/origKg)*total*100)/100 })()
+                                            const valPerKg = avail>0 ? totalVal/avail : 0
                                             const fmtZl = v => v>0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
+                                            const palRows = []
+                                            for (let i=0;i<fullP;i++) palRows.push(B)
+                                            if (rem>0) palRows.push(rem)
                                             return (
                                               <div style={{ marginBottom:8 }}>
-                                                <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#3C3489' }}>Rozbicie na palety</div>
-                                                <table style={{ width:'auto', minWidth:440 }}>
+                                                <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#3C3489' }}>Rozbicie na palety (pozostało)</div>
+                                                <table style={{ width:'auto', minWidth:460 }}>
                                                   <thead><tr>
                                                     <th>Paleta</th>
                                                     <th style={{ textAlign:'right' }}>Jednostki</th>
@@ -606,19 +615,20 @@ export default function MagazynWG() {
                                                   </tr></thead>
                                                   <tbody>
                                                     <tr style={{ fontWeight:600, background:'#EEEDFE' }}>
-                                                      <td>Razem: {P} pal</td>
+                                                      <td>Razem: {palCount} pal</td>
                                                       <td style={{ textAlign:'right' }}>{totalUnits} {uname(totalUnits)}</td>
-                                                      <td style={{ textAlign:'right' }}>{fmt3(P*perKg)}</td>
+                                                      <td style={{ textAlign:'right' }}>{fmt3(avail)}</td>
                                                       <td style={{ textAlign:'right' }}>{fmtZl(totalVal)}</td>
                                                     </tr>
-                                                    {Array.from({ length:P }).map((_,i) => (
+                                                    {palRows.map((u,i) => (
                                                       <tr key={i}>
-                                                        <td className="muted">Paleta {i+1}</td>
-                                                        <td style={{ textAlign:'right' }}>{B} {uname(B)}</td>
-                                                        <td style={{ textAlign:'right' }}>{fmt3(perKg)}</td>
-                                                        <td style={{ textAlign:'right', color:'#3C3489' }}>{fmtZl(perVal)}</td>
+                                                        <td className="muted">Paleta {i+1}{u<B?' (częściowa)':''}</td>
+                                                        <td style={{ textAlign:'right' }}>{u} {uname(u)}</td>
+                                                        <td style={{ textAlign:'right' }}>{fmt3(u*W)}</td>
+                                                        <td style={{ textAlign:'right', color:'#3C3489' }}>{fmtZl(valPerKg*u*W)}</td>
                                                       </tr>
                                                     ))}
+                                                    {palCount===0 && <tr><td colSpan={4} className="muted" style={{ fontSize:11 }}>Wydano w całości</td></tr>}
                                                   </tbody>
                                                 </table>
                                               </div>
@@ -745,13 +755,17 @@ export default function MagazynWG() {
                 </select>
               </div>
             </div>
-            <div className="fr" style={{ marginBottom:8 }}>
+            <div className="fr" style={{ marginBottom:0 }}>
               <div><label>Palety</label><input type="number" min="0" step="1" value={editForm.pallets??''} onChange={e => setEditForm(p=>({...p,pallets:e.target.value}))} placeholder="np. 1" /></div>
               <div><label>Jednostek na palecie</label><input type="number" min="0" step="1" value={editForm.bags_per_pallet??''} onChange={e => setEditForm(p=>({...p,bags_per_pallet:e.target.value}))} placeholder="np. 40" /></div>
-            </div>
-            <div className="fr" style={{ marginBottom:0 }}>
-              <div><label>Liczba jednostek</label><input type="number" min="0" step="1" value={editForm.unit_count??''} onChange={e => setEditForm(p=>({...p,unit_count:e.target.value}))} placeholder="np. 15" /></div>
               <div><label>Waga 1 jednostki (kg)</label><input type="number" min="0" step="0.001" value={editForm.unit_weight_kg??''} onChange={e => setEditForm(p=>({...p,unit_weight_kg:e.target.value}))} placeholder="np. 20" /></div>
+            </div>
+            <div className="muted" style={{ fontSize:11, marginTop:6 }}>
+              {(() => {
+                const u = (parseInt(editForm.pallets)||0) * (parseInt(editForm.bags_per_pallet)||0)
+                const w = parseFloat(editForm.unit_weight_kg)||0
+                return <>Liczba jednostek (razem): <b>{u || '—'}</b>{u>0 && w>0 ? <> · łącznie <b>{(u*w).toLocaleString('pl-PL')} kg</b></> : ''}</>
+              })()}
             </div>
             <div className="muted" style={{ fontSize:11, marginTop:6 }}>Np. „1 big bag 700 kg" lub „15 worków × 20 kg". Pole opisowe — nie zmienia ilości (kg).</div>
           </div>
