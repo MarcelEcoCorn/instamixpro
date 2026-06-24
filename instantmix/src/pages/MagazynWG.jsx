@@ -36,7 +36,7 @@ export default function MagazynWG() {
   const [savingEdit, setSavingEdit] = useState(false)
   const [wzModal, setWzModal] = useState(false)
   const [wzGood, setWzGood] = useState(null)
-  const [wzForm, setWzForm] = useState({ issue_date: new Date().toISOString().slice(0, 10), quantity_kg: '', recipient: '', carrier: '', notes: '' })
+  const [wzForm, setWzForm] = useState({ issue_date: new Date().toISOString().slice(0, 10), quantity_kg: '', recipient: '', carrier: '', notes: '', unit_type: 'worek', pallets: '', unit_count: '', unit_weight_kg: '' })
   const [wzEditModal, setWzEditModal] = useState(false)
   const [wzEditDoc, setWzEditDoc] = useState(null)
   const [wzEditForm, setWzEditForm] = useState({})
@@ -209,15 +209,46 @@ export default function MagazynWG() {
     return `WZ-${year}-0001`
   }
 
-  function openWz(good) { setWzGood(good); setWzForm({ issue_date: new Date().toISOString().slice(0, 10), quantity_kg: parseFloat(good.available_kg).toFixed(3), recipient: good.client || '', carrier: '', notes: '' }); setError(''); setWzModal(true) }
+  function openWz(good) {
+    const W = parseFloat(good.unit_weight_kg || 0)
+    const avail = parseFloat(good.available_kg || 0)
+    let pack
+    if (good.form === 'spakowane' && W > 0) {
+      const units = Math.round(avail / W)
+      const B = good.bags_per_pallet ? parseInt(good.bags_per_pallet) : 0
+      const pal = B > 0 ? Math.ceil(units / B) : ''
+      pack = { unit_type: good.unit_type || 'worek', pallets: pal === '' ? '' : String(pal), unit_count: String(units), unit_weight_kg: String(W) }
+    } else {
+      pack = { unit_type: 'big_bag', pallets: '', unit_count: W > 0 ? String(Math.round(avail / W)) : '1', unit_weight_kg: W > 0 ? String(W) : '' }
+    }
+    setWzGood(good)
+    setWzForm({ issue_date: new Date().toISOString().slice(0, 10), quantity_kg: avail.toFixed(3), recipient: good.client || '', carrier: '', notes: '', ...pack })
+    setError(''); setWzModal(true)
+  }
   const wf = (k, v) => setWzForm(p => ({ ...p, [k]: v }))
+  // zmiana liczby/wagi opakowań przelicza wagę do wydania
+  const wfUnits = (k, v) => setWzForm(p => {
+    const next = { ...p, [k]: v }
+    const u = parseFloat(next.unit_count) || 0
+    const w = parseFloat(next.unit_weight_kg) || 0
+    if (u > 0 && w > 0) next.quantity_kg = (u * w).toFixed(3)
+    return next
+  })
+
+  // opis opakowania na liście WZ
+  function wzPackText(wz) {
+    const parts = []
+    if (wz.pallets) parts.push(`${wz.pallets} pal`)
+    if (wz.unit_count) { const u = wz.unit_type === 'worek' ? 'wor.' : (wz.unit_type === 'big_bag' ? 'BB' : 'szt.'); parts.push(`${wz.unit_count} ${u}`) }
+    return parts.join(' · ')
+  }
 
   async function saveWz() {
     if (!wzForm.quantity_kg || parseFloat(wzForm.quantity_kg) <= 0) { setError('Podaj ilość do wydania'); return }
     if (parseFloat(wzForm.quantity_kg) > parseFloat(wzGood.available_kg)) { setError(`Maksymalna dostępna ilość: ${wzGood.available_kg} kg`); return }
     setSaving(true); setError('')
     const wzNumber = await generateWzNumber()
-    const { error: err } = await supabase.from('wz_documents').insert({ wz_number: wzNumber, finished_good_id: wzGood.id, order_id: wzGood.order_id || null, issue_date: wzForm.issue_date, quantity_kg: parseFloat(wzForm.quantity_kg), recipient: wzForm.recipient || null, carrier: wzForm.carrier || null, notes: wzForm.notes || null, issued_by: profile?.id })
+    const { error: err } = await supabase.from('wz_documents').insert({ wz_number: wzNumber, finished_good_id: wzGood.id, order_id: wzGood.order_id || null, issue_date: wzForm.issue_date, quantity_kg: parseFloat(wzForm.quantity_kg), recipient: wzForm.recipient || null, carrier: wzForm.carrier || null, notes: wzForm.notes || null, unit_type: wzForm.unit_type || null, pallets: wzForm.pallets === '' ? null : parseInt(wzForm.pallets), unit_count: wzForm.unit_count === '' ? null : parseInt(wzForm.unit_count), unit_weight_kg: wzForm.unit_weight_kg === '' ? null : parseFloat(wzForm.unit_weight_kg), issued_by: profile?.id })
     if (err) { setError(err.message); setSaving(false); return }
     if (wzGood.order_id && parseFloat(wzGood.available_kg) - parseFloat(wzForm.quantity_kg) <= 0.001) await supabase.from('orders').update({ status: 'wyslane', updated_at: new Date().toISOString() }).eq('id', wzGood.order_id)
     setSaving(false); setWzModal(false)
@@ -226,14 +257,14 @@ export default function MagazynWG() {
 
   function openWzEdit(wz) {
     setWzEditDoc(wz)
-    setWzEditForm({ issue_date: wz.issue_date, quantity_kg: wz.quantity_kg, recipient: wz.recipient||'', carrier: wz.carrier||'', notes: wz.notes||'' })
+    setWzEditForm({ issue_date: wz.issue_date, quantity_kg: wz.quantity_kg, recipient: wz.recipient||'', carrier: wz.carrier||'', notes: wz.notes||'', unit_type: wz.unit_type||'worek', pallets: wz.pallets??'', unit_count: wz.unit_count??'', unit_weight_kg: wz.unit_weight_kg??'' })
     setError(''); setWzEditModal(true)
   }
 
   async function saveWzEdit() {
     if (!wzEditForm.quantity_kg || parseFloat(wzEditForm.quantity_kg) <= 0) { setError('Podaj ilość'); return }
     setSavingWzEdit(true); setError('')
-    const { error: err } = await supabase.from('wz_documents').update({ issue_date: wzEditForm.issue_date, quantity_kg: parseFloat(wzEditForm.quantity_kg), recipient: wzEditForm.recipient || null, carrier: wzEditForm.carrier || null, notes: wzEditForm.notes || null }).eq('id', wzEditDoc.id)
+    const { error: err } = await supabase.from('wz_documents').update({ issue_date: wzEditForm.issue_date, quantity_kg: parseFloat(wzEditForm.quantity_kg), recipient: wzEditForm.recipient || null, carrier: wzEditForm.carrier || null, notes: wzEditForm.notes || null, unit_type: wzEditForm.unit_type || null, pallets: wzEditForm.pallets === '' ? null : parseInt(wzEditForm.pallets), unit_count: wzEditForm.unit_count === '' ? null : parseInt(wzEditForm.unit_count), unit_weight_kg: wzEditForm.unit_weight_kg === '' ? null : parseFloat(wzEditForm.unit_weight_kg) }).eq('id', wzEditDoc.id)
     setSavingWzEdit(false)
     if (err) { setError(err.message); return }
     setWzEditModal(false); load()
@@ -246,7 +277,11 @@ export default function MagazynWG() {
 
   function printWZ(wzNumber, good, form) {
     const qty = parseFloat(form.quantity_kg).toFixed(3)
-    const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>WZ ${wzNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;padding:16px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:10px;margin-bottom:14px}.company{font-size:16px;font-weight:bold;color:#0F6E56}.wz-number{font-size:18px;font-weight:bold;color:#0F6E56;margin-top:4px}.info-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}.info-box{border:1px solid #D3D1C7;border-radius:4px;padding:6px 10px}.info-label{font-size:9px;color:#888;text-transform:uppercase;margin-bottom:2px}.info-value{font-size:13px;font-weight:bold}table{width:100%;border-collapse:collapse;margin-bottom:14px}th{background:#0F6E56;color:#fff;padding:6px;font-size:9px;text-align:left;border:1px solid #085041}td{padding:6px;border:1px solid #D3D1C7;font-size:11px}.total td{background:#E1F5EE;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1px solid #333;margin-top:28px;margin-bottom:4px}.sig-label{font-size:9px;color:#888;text-transform:uppercase}@media print{@page{margin:10mm;size:A4}}</style></head><body><div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:13px;font-weight:bold;margin-top:3px">Wydanie Zewnętrzne (WZ)</div><div class="wz-number">${wzNumber}</div></div><div style="text-align:right;font-size:10px;color:#555">Data wydania: <strong>${form.issue_date}</strong><br>Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wystawił: <strong>${profile?.full_name||'—'}</strong></div></div><div class="info-grid"><div class="info-box"><div class="info-label">Odbiorca</div><div class="info-value">${form.recipient||'—'}</div></div><div class="info-box"><div class="info-label">Przewoźnik</div><div class="info-value">${form.carrier||'—'}</div></div><div class="info-box"><div class="info-label">Nr zlecenia</div><div class="info-value">${good.order_number||'—'}</div></div><div class="info-box"><div class="info-label">Nr partii produkcyjnej</div><div class="info-value">${good.lot_number}</div></div><div class="info-box"><div class="info-label">Receptura</div><div class="info-value">${good.recipe_code} — ${good.recipe_name}</div></div><div class="info-box"><div class="info-label">Lokalizacja</div><div class="info-value">${good.location||'—'}</div></div></div><table><thead><tr><th>Lp.</th><th>Kod</th><th>Nazwa produktu</th><th style="text-align:right">Ilość (kg)</th><th>Nr partii</th><th>Uwagi</th></tr></thead><tbody><tr><td>1</td><td>${good.recipe_code}</td><td>${good.recipe_name} (${good.recipe_version})</td><td style="text-align:right;font-weight:bold">${qty}</td><td>${good.lot_number}</td><td>${form.notes||''}</td></tr><tr class="total"><td colspan="3" style="text-align:right">RAZEM:</td><td style="text-align:right">${qty} kg</td><td colspan="2"></td></tr></tbody></table><div class="sig-grid"><div><div class="sig-label">Wydał (magazyn)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Odebrał</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div><script>window.onload=function(){window.print()}</script></body></html>`
+    const formaTxt = form.unit_type === 'worek' ? 'Worek' : form.unit_type === 'big_bag' ? 'Big bag' : '—'
+    const palTxt = (form.pallets !== '' && form.pallets != null) ? form.pallets : '—'
+    const unitsTxt = (form.unit_count !== '' && form.unit_count != null) ? form.unit_count : '—'
+    const uwTxt = (form.unit_weight_kg !== '' && form.unit_weight_kg != null && parseFloat(form.unit_weight_kg) > 0) ? parseFloat(form.unit_weight_kg).toFixed(3) + ' kg' : '—'
+    const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8"><title>WZ ${wzNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;padding:16px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #0F6E56;padding-bottom:10px;margin-bottom:14px}.company{font-size:16px;font-weight:bold;color:#0F6E56}.wz-number{font-size:18px;font-weight:bold;color:#0F6E56;margin-top:4px}.info-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}.info-box{border:1px solid #D3D1C7;border-radius:4px;padding:6px 10px}.info-label{font-size:9px;color:#888;text-transform:uppercase;margin-bottom:2px}.info-value{font-size:13px;font-weight:bold}table{width:100%;border-collapse:collapse;margin-bottom:14px}th{background:#0F6E56;color:#fff;padding:6px;font-size:9px;text-align:left;border:1px solid #085041}td{padding:6px;border:1px solid #D3D1C7;font-size:11px}.total td{background:#E1F5EE;font-weight:bold}.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:16px}.sig-line{border-bottom:1px solid #333;margin-top:28px;margin-bottom:4px}.sig-label{font-size:9px;color:#888;text-transform:uppercase}@media print{@page{margin:10mm;size:A4}}</style></head><body><div class="header"><div><div class="company">InstantMix Pro</div><div style="font-size:13px;font-weight:bold;margin-top:3px">Wydanie Zewnętrzne (WZ)</div><div class="wz-number">${wzNumber}</div></div><div style="text-align:right;font-size:10px;color:#555">Data wydania: <strong>${form.issue_date}</strong><br>Wygenerowano: ${new Date().toLocaleDateString('pl-PL')}<br>Wystawił: <strong>${profile?.full_name||'—'}</strong></div></div><div class="info-grid"><div class="info-box"><div class="info-label">Odbiorca</div><div class="info-value">${form.recipient||'—'}</div></div><div class="info-box"><div class="info-label">Przewoźnik</div><div class="info-value">${form.carrier||'—'}</div></div><div class="info-box"><div class="info-label">Nr zlecenia</div><div class="info-value">${good.order_number||'—'}</div></div><div class="info-box"><div class="info-label">Nr partii produkcyjnej</div><div class="info-value">${good.lot_number}</div></div><div class="info-box"><div class="info-label">Receptura</div><div class="info-value">${good.recipe_code} — ${good.recipe_name}</div></div><div class="info-box"><div class="info-label">Lokalizacja</div><div class="info-value">${good.location||'—'}</div></div></div><table><thead><tr><th>Lp.</th><th>Kod</th><th>Nazwa produktu</th><th>Forma</th><th style="text-align:right">Palety</th><th style="text-align:right">Opakowań</th><th style="text-align:right">Ilość (kg)</th><th>Nr partii</th></tr></thead><tbody><tr><td>1</td><td>${good.recipe_code}</td><td>${good.recipe_name} (${good.recipe_version})</td><td>${formaTxt}${uwTxt!=='—'?' · '+uwTxt:''}</td><td style="text-align:right">${palTxt}</td><td style="text-align:right">${unitsTxt}</td><td style="text-align:right;font-weight:bold">${qty}</td><td>${good.lot_number}</td></tr><tr class="total"><td colspan="6" style="text-align:right">RAZEM:</td><td style="text-align:right">${qty} kg</td><td></td></tr></tbody></table>${form.notes?`<div style="font-size:10px;color:#555;margin-bottom:10px"><strong>Uwagi:</strong> ${form.notes}</div>`:''}<div class="sig-grid"><div><div class="sig-label">Wydał (magazyn)</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Odebrał</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div><div><div class="sig-label">Zatwierdził</div><div class="sig-line"></div><div class="sig-label">Imię, nazwisko i podpis</div></div></div><script>window.onload=function(){window.print()}</script></body></html>`
     const win = window.open('', '_blank'); win.document.write(html); win.document.close()
   }
 
@@ -653,6 +688,7 @@ export default function MagazynWG() {
                                                 <div key={wz.id} style={{ fontSize:11, color:'#5F5E5A', padding:'4px 0', borderBottom:'0.5px solid #D3D1C7', display:'flex', gap:10, alignItems:'center' }}>
                                                   <span className="lot" style={{ fontSize:10 }}>{wz.wz_number}</span>
                                                   <span>{wz.recipient||'—'}</span>
+                                                  {wzPackText(wz) && <span className="badge b-purple" style={{ fontSize:9 }}>{wzPackText(wz)}</span>}
                                                   <span style={{ fontWeight:500 }}>{parseFloat(wz.quantity_kg).toFixed(3)} kg</span>
                                                   <span className="muted">{wz.issue_date}</span>
                                                   <span style={{ flex:1 }} />
@@ -856,8 +892,21 @@ export default function MagazynWG() {
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
             <div><label>Data wydania</label><input type="date" value={wzForm.issue_date} onChange={e => wf('issue_date', e.target.value)} /></div>
-            <div><label>Ilość do wydania (kg) *</label><input type="number" step="0.001" value={wzForm.quantity_kg} onChange={e => wf('quantity_kg', e.target.value)} /></div>
+            <div><label>Rodzaj opakowania</label>
+              <select value={wzForm.unit_type} onChange={e => wf('unit_type', e.target.value)}>
+                <option value="worek">Worek</option><option value="big_bag">Big bag</option>
+              </select>
+            </div>
           </div>
+          <div style={{ background:'#F7F6F1', border:'0.5px solid #E3E1D8', borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:'#085041', marginBottom:8 }}>Opakowanie wydania</div>
+            <div className="fr" style={{ marginBottom:0 }}>
+              <div><label>Palety</label><input type="number" min="0" step="1" value={wzForm.pallets} onChange={e => wf('pallets', e.target.value)} placeholder="np. 1" /></div>
+              <div><label>Liczba opakowań</label><input type="number" min="0" step="1" value={wzForm.unit_count} onChange={e => wfUnits('unit_count', e.target.value)} placeholder="np. 40" /></div>
+              <div><label>Waga 1 opakowania (kg)</label><input type="number" min="0" step="0.001" value={wzForm.unit_weight_kg} onChange={e => wfUnits('unit_weight_kg', e.target.value)} placeholder="np. 20" /></div>
+            </div>
+          </div>
+          <div><label>Ilość do wydania (kg) *</label><input type="number" step="0.001" value={wzForm.quantity_kg} onChange={e => wf('quantity_kg', e.target.value)} /></div>
           <div className="fr">
             <div><label>Odbiorca</label><input value={wzForm.recipient} onChange={e => wf('recipient', e.target.value)} placeholder="Nazwa firmy / osoby" /></div>
             <div><label>Przewoźnik / transport</label><input value={wzForm.carrier} onChange={e => wf('carrier', e.target.value)} placeholder="np. DHL, własny transport" /></div>
@@ -877,8 +926,18 @@ export default function MagazynWG() {
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
             <div><label>Data wydania</label><input type="date" value={wzEditForm.issue_date||''} onChange={e => setWzEditForm(p=>({...p,issue_date:e.target.value}))} /></div>
-            <div><label>Ilość (kg)</label><input type="number" step="0.001" value={wzEditForm.quantity_kg||''} onChange={e => setWzEditForm(p=>({...p,quantity_kg:e.target.value}))} /></div>
+            <div><label>Rodzaj opakowania</label>
+              <select value={wzEditForm.unit_type||'worek'} onChange={e => setWzEditForm(p=>({...p,unit_type:e.target.value}))}>
+                <option value="worek">Worek</option><option value="big_bag">Big bag</option>
+              </select>
+            </div>
           </div>
+          <div className="fr">
+            <div><label>Palety</label><input type="number" min="0" step="1" value={wzEditForm.pallets??''} onChange={e => setWzEditForm(p=>({...p,pallets:e.target.value}))} placeholder="np. 1" /></div>
+            <div><label>Liczba opakowań</label><input type="number" min="0" step="1" value={wzEditForm.unit_count??''} onChange={e => setWzEditForm(p=>{const n={...p,unit_count:e.target.value};const u=parseFloat(n.unit_count)||0,w=parseFloat(n.unit_weight_kg)||0;if(u>0&&w>0)n.quantity_kg=(u*w).toFixed(3);return n})} placeholder="np. 40" /></div>
+            <div><label>Waga 1 opak. (kg)</label><input type="number" min="0" step="0.001" value={wzEditForm.unit_weight_kg??''} onChange={e => setWzEditForm(p=>{const n={...p,unit_weight_kg:e.target.value};const u=parseFloat(n.unit_count)||0,w=parseFloat(n.unit_weight_kg)||0;if(u>0&&w>0)n.quantity_kg=(u*w).toFixed(3);return n})} placeholder="np. 20" /></div>
+          </div>
+          <div><label>Ilość (kg)</label><input type="number" step="0.001" value={wzEditForm.quantity_kg||''} onChange={e => setWzEditForm(p=>({...p,quantity_kg:e.target.value}))} /></div>
           <div className="fr">
             <div><label>Odbiorca</label><input value={wzEditForm.recipient||''} onChange={e => setWzEditForm(p=>({...p,recipient:e.target.value}))} placeholder="Nazwa firmy / osoby" /></div>
             <div><label>Przewoźnik</label><input value={wzEditForm.carrier||''} onChange={e => setWzEditForm(p=>({...p,carrier:e.target.value}))} placeholder="np. DHL" /></div>
