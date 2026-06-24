@@ -52,6 +52,11 @@ export default function Zlecenia() {
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(new Date())
 
+  // combobox klienta (wyszukiwanie)
+  const [clientQuery, setClientQuery] = useState('')
+  const [clientOpen, setClientOpen] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+
   useEffect(() => {
     load()
     const interval = setInterval(load, 30000)
@@ -89,13 +94,37 @@ export default function Zlecenia() {
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
-  // wybór klienta z listy → ustaw client_id + nazwę
+  // etykieta klienta na liście / w polu
+  function clientLabel(c) {
+    if (!c) return ''
+    return (c.is_sample ? 'PRÓBKA — ' : (c.number ? c.number + ' — ' : '')) + c.name
+  }
+
+  // pasujący klienci wg wpisanego tekstu (numer lub nazwa)
+  function clientMatches() {
+    const q = clientQuery.trim().toLowerCase()
+    const list = !q ? clients : clients.filter(c => clientLabel(c).toLowerCase().includes(q))
+    return list.slice(0, 60)
+  }
+
+  // wybór klienta z listy → ustaw client_id + nazwę + tekst pola
   function pickClient(id) {
     const c = clients.find(x => x.id === id)
     setForm(p => ({ ...p, client_id: id, client: c ? c.name : '' }))
+    setClientQuery(clientLabel(c))
+    setClientOpen(false)
   }
 
-  function openNew() { setForm(EMPTY_FORM); setEditMode(false); setError(''); setModal(true) }
+  function handleClientKey(e) {
+    if (!clientOpen) { if (e.key === 'ArrowDown') { setClientOpen(true); setHighlight(0) } return }
+    const m = clientMatches()
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight(h => Math.min(h + 1, m.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (m[highlight]) pickClient(m[highlight].id) }
+    else if (e.key === 'Escape') { setClientOpen(false) }
+  }
+
+  function openNew() { setForm(EMPTY_FORM); setClientQuery(''); setClientOpen(false); setEditMode(false); setError(''); setModal(true) }
 
   function openEdit(order) {
     setForm({
@@ -103,6 +132,9 @@ export default function Zlecenia() {
       pallets:order.pallets??'', bags_per_pallet:order.bags_per_pallet??'', bag_weight_kg:order.bag_weight_kg??'',
       quantity_kg:order.quantity_kg, ship_date:order.ship_date, status:order.status, notes:order.notes||''
     })
+    const c = clients.find(x => x.id === order.client_id)
+    setClientQuery(c ? clientLabel(c) : (order.client || ''))
+    setClientOpen(false)
     setEditMode(true); setError(''); setModal(true)
   }
 
@@ -270,14 +302,32 @@ export default function Zlecenia() {
           <div className="modal-title">{editMode?'Edytuj zlecenie':'Nowe zlecenie produkcyjne'}</div>
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
-            <div>
+            <div style={{ position:'relative' }}>
               <label>Klient *</label>
-              <select value={form.client_id} onChange={e => pickClient(e.target.value)}>
-                <option value="">— wybierz klienta —</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.number ? c.number + ' — ' : ''}{c.name}</option>)}
-                {form.client && !form.client_id &&
-                  <option value="" disabled>(obecnie: {form.client})</option>}
-              </select>
+              <input
+                value={clientQuery}
+                placeholder="Wpisz numer lub nazwę klienta..."
+                onChange={e => { setClientQuery(e.target.value); setClientOpen(true); setHighlight(0); setForm(p => ({ ...p, client_id:'', client:'' })) }}
+                onFocus={() => setClientOpen(true)}
+                onBlur={() => setTimeout(() => setClientOpen(false), 150)}
+                onKeyDown={handleClientKey}
+                autoComplete="off"
+              />
+              {clientOpen && (
+                <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:50, background:'#fff', border:'0.5px solid #D3D1C7', borderRadius:8, marginTop:4, maxHeight:240, overflowY:'auto', boxShadow:'0 6px 20px rgba(0,0,0,0.12)' }}>
+                  {clientMatches().length === 0 && (
+                    <div style={{ padding:'8px 10px', fontSize:12, color:'#888' }}>Brak pasujących klientów</div>
+                  )}
+                  {clientMatches().map((c, idx) => (
+                    <div key={c.id}
+                      onMouseDown={e => { e.preventDefault(); pickClient(c.id) }}
+                      onMouseEnter={() => setHighlight(idx)}
+                      style={{ padding:'6px 10px', cursor:'pointer', fontSize:13, background: idx===highlight ? '#E1F5EE' : '#fff' }}>
+                      {clientLabel(c)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div><label>Data wysyłki *</label><input type="date" value={form.ship_date} onChange={e => f('ship_date',e.target.value)} /></div>
           </div>
@@ -288,7 +338,7 @@ export default function Zlecenia() {
               const r = recipes.find(x=>x.id===e.target.value)
               if (r && !form.client_id) {
                 if (r.client_id && clients.some(c=>c.id===r.client_id)) pickClient(r.client_id)
-                else if (r.client) f('client', r.client)
+                else if (r.client) { f('client', r.client); setClientQuery(r.client) }
               }
             }}>
               <option value="">— wybierz recepturę —</option>
