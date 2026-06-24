@@ -26,6 +26,8 @@ export default function Kalkulator() {
   const [packSel, setPackSel] = useState(null)
   const [packLuz, setPackLuz] = useState([])
   const [packLuzGroups, setPackLuzGroups] = useState([])
+  const [packAssignOrder, setPackAssignOrder] = useState('')
+  const [packAssignList, setPackAssignList] = useState([])
   const [packDone, setPackDone] = useState(0)
   const [packForm, setPackForm] = useState({ unit_type:'worek', pallets:'', bags_per_pallet:'', unit_weight_kg:'', location:'', notes:'' })
   const [packSaving, setPackSaving] = useState(false)
@@ -297,8 +299,8 @@ ${rows}
     const luz = (data || []).filter(g => (g.form === 'luz' || !g.form) && parseFloat(g.available_kg) > 0.001)
     const map = {}
     for (const g of luz) {
-      const k = g.recipe_code || '—'
-      if (!map[k]) map[k] = { recipe_code: g.recipe_code, recipe_name: g.recipe_name, recipe_version: g.recipe_version, total_kg: 0, bags: 0 }
+      const k = g.recipe_id || g.recipe_code || '—'
+      if (!map[k]) map[k] = { recipe_id: g.recipe_id, recipe_code: g.recipe_code, recipe_name: g.recipe_name, recipe_version: g.recipe_version, client: g.client, total_kg: 0, bags: 0 }
       map[k].total_kg += parseFloat(g.available_kg || 0)
       map[k].bags += 1
     }
@@ -307,10 +309,10 @@ ${rows}
   useEffect(() => { if (mode === 'pakowanie') { loadPackOrders(); loadPackLuzGroups() } }, [mode])
 
   async function loadPackData(ctx) {
-    const code = ctx.recipes?.code
+    const rid = ctx.recipe_id
     const { data } = await supabase.from('v_finished_goods').select('*').order('received_date', { ascending: true })
     const rows = data || []
-    const luz = rows.filter(g => g.recipe_code === code && (g.form === 'luz' || !g.form) && parseFloat(g.available_kg) > 0.001)
+    const luz = rows.filter(g => g.recipe_id === rid && (g.form === 'luz' || !g.form) && parseFloat(g.available_kg) > 0.001)
     const done = (ctx.kind === 'order')
       ? rows.filter(g => g.order_id === ctx.id && g.form === 'spakowane').reduce((s,g) => s + parseFloat(g.original_kg || 0), 0)
       : 0
@@ -319,7 +321,7 @@ ${rows}
 
   async function selectPackOrder(o) {
     const sel = { ...o, kind: 'order' }
-    setPackSel(sel); setPackError(''); setPackMsg('')
+    setPackSel(sel); setPackError(''); setPackMsg(''); setPackAssignOrder(''); setPackAssignList([])
     setPackForm({
       unit_type: 'worek',
       pallets: o.pallets != null ? String(o.pallets) : '',
@@ -331,9 +333,12 @@ ${rows}
   }
 
   async function selectPackLuz(grp) {
-    const sel = { kind: 'luz', recipe_code: grp.recipe_code, recipe_name: grp.recipe_name, recipe_version: grp.recipe_version, recipes: { code: grp.recipe_code, name: grp.recipe_name, version: grp.recipe_version } }
-    setPackSel(sel); setPackError(''); setPackMsg('')
+    const sel = { kind: 'luz', recipe_id: grp.recipe_id, recipe_code: grp.recipe_code, recipe_name: grp.recipe_name, recipe_version: grp.recipe_version, client: grp.client, recipes: { code: grp.recipe_code, name: grp.recipe_name, version: grp.recipe_version } }
+    setPackSel(sel); setPackError(''); setPackMsg(''); setPackAssignOrder('')
     setPackForm({ unit_type: 'worek', pallets: '', bags_per_pallet: '', unit_weight_kg: '', location: '', notes: '' })
+    // zlecenia w realizacji o IDENTYCZNEJ recepturze (wersja + klient)
+    const { data: ord } = await supabase.from('orders').select('id,order_number,client,quantity_kg,recipe_id,production_batch_id').eq('status','w_realizacji').eq('recipe_id', grp.recipe_id).order('ship_date', { ascending: true })
+    setPackAssignList(ord || [])
     await loadPackData(sel)
   }
 
@@ -344,14 +349,16 @@ ${rows}
 
   async function doPack() {
     if (!packSel) return
-    const isOrder = packSel.kind === 'order'
+    const targetOrder = packSel.kind === 'order'
+      ? packSel
+      : (packAssignOrder ? packAssignList.find(o => o.id === packAssignOrder) : null)
     const kg = parseFloat(packKg.toFixed(3))
     if (!kg || kg <= 0) { setPackError('Podaj liczbę i wagę jednostek'); return }
     if (kg > luzTotal + 0.001) { setPackError(`Za mało luzu na magazynie. Dostępne: ${luzTotal.toFixed(3)} kg`); return }
     setPackSaving(true); setPackError(''); setPackMsg('')
 
     const { data: op, error: opErr } = await supabase.from('packing_operations').insert({
-      order_id: isOrder ? packSel.id : null, packing_date: new Date().toISOString().slice(0,10),
+      order_id: targetOrder ? targetOrder.id : null, packing_date: new Date().toISOString().slice(0,10),
       packed_by: profile?.id, total_packed_kg: kg, notes: packForm.notes || null
     }).select().single()
     if (opErr) { setPackError(opErr.message); setPackSaving(false); return }
@@ -376,8 +383,8 @@ ${rows}
 
     // spakowana jednostka -> finished_goods
     const { error: fgErr } = await supabase.from('finished_goods').insert({
-      production_batch_id: (isOrder ? packSel.production_batch_id : null) || primaryBatch,
-      order_id: isOrder ? packSel.id : null,
+      production_batch_id: (targetOrder ? targetOrder.production_batch_id : null) || primaryBatch,
+      order_id: targetOrder ? targetOrder.id : null,
       received_date: new Date().toISOString().slice(0,10),
       quantity_kg: kg,
       location: packForm.location || null,
@@ -393,14 +400,16 @@ ${rows}
     })
     if (fgErr) { setPackError(fgErr.message); setPackSaving(false); return }
 
-    if (isOrder) {
-      const newDone = packDone + kg
-      if (newDone + 0.001 >= parseFloat(packSel.quantity_kg)) {
-        await supabase.from('orders').update({ status:'zrealizowane', updated_at: new Date().toISOString() }).eq('id', packSel.id)
+    // status zlecenia — sprawdź SUMĘ spakowanego dla całego zlecenia
+    if (targetOrder) {
+      const { data: pr } = await supabase.from('v_finished_goods').select('original_kg,form').eq('order_id', targetOrder.id)
+      const packedTotal = (pr || []).filter(r => r.form === 'spakowane').reduce((s,r) => s + parseFloat(r.original_kg || 0), 0)
+      if (packedTotal + 0.001 >= parseFloat(targetOrder.quantity_kg)) {
+        await supabase.from('orders').update({ status:'zrealizowane', updated_at: new Date().toISOString() }).eq('id', targetOrder.id)
       }
     }
     setPackSaving(false)
-    setPackMsg(`Spakowano ${kg.toLocaleString('pl-PL')} kg (${packForm.pallets||0} pal × ${packForm.bags_per_pallet||0} × ${packForm.unit_weight_kg} kg ${packForm.unit_type==='worek'?'worki':'big bagi'}).`)
+    setPackMsg(`Spakowano ${kg.toLocaleString('pl-PL')} kg (${packForm.pallets||0} pal × ${packForm.bags_per_pallet||0} × ${packForm.unit_weight_kg} kg ${packForm.unit_type==='worek'?'worki':'big bagi'})${targetOrder ? ' → zlecenie '+targetOrder.order_number : ''}.`)
     await loadPackData(packSel)
     await loadPackOrders()
     await loadPackLuzGroups()
@@ -514,6 +523,16 @@ ${rows}
 
             <div style={{ background:'#F7F6F1', border:'0.5px solid #E3E1D8', borderRadius:8, padding:'10px 12px' }}>
               <div style={{ fontSize:12, fontWeight:600, color:'#085041', marginBottom:8 }}>Spakuj partię</div>
+              {packSel.kind === 'luz' && (
+                <div style={{ marginBottom:10 }}>
+                  <label>Przypisz do zlecenia (opcjonalnie — tylko ta sama receptura)</label>
+                  <select value={packAssignOrder} onChange={e => setPackAssignOrder(e.target.value)}>
+                    <option value="">— bez przypisania (pakuj do stanu) —</option>
+                    {packAssignList.map(o => <option key={o.id} value={o.id}>{o.order_number} — {o.client} ({parseFloat(o.quantity_kg).toLocaleString('pl-PL')} kg)</option>)}
+                  </select>
+                  {packAssignList.length === 0 && <div className="muted" style={{ fontSize:11, marginTop:4 }}>Brak zleceń w realizacji o tej recepturze.</div>}
+                </div>
+              )}
               <div className="fr">
                 <div><label>Rodzaj jednostki</label>
                   <select value={packForm.unit_type} onChange={e => setPackForm(p => ({ ...p, unit_type:e.target.value }))}>
