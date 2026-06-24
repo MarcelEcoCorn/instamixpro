@@ -25,6 +25,7 @@ export default function Kalkulator() {
   const [packOrders, setPackOrders] = useState([])
   const [packSel, setPackSel] = useState(null)
   const [packLuz, setPackLuz] = useState([])
+  const [packLuzGroups, setPackLuzGroups] = useState([])
   const [packDone, setPackDone] = useState(0)
   const [packForm, setPackForm] = useState({ unit_type:'worek', pallets:'', bags_per_pallet:'', unit_weight_kg:'', location:'', notes:'' })
   const [packSaving, setPackSaving] = useState(false)
@@ -291,19 +292,34 @@ ${rows}
       .order('ship_date', { ascending: true })
     setPackOrders(data || [])
   }
-  useEffect(() => { if (mode === 'pakowanie') loadPackOrders() }, [mode])
+  async function loadPackLuzGroups() {
+    const { data } = await supabase.from('v_finished_goods').select('*')
+    const luz = (data || []).filter(g => (g.form === 'luz' || !g.form) && parseFloat(g.available_kg) > 0.001)
+    const map = {}
+    for (const g of luz) {
+      const k = g.recipe_code || '—'
+      if (!map[k]) map[k] = { recipe_code: g.recipe_code, recipe_name: g.recipe_name, recipe_version: g.recipe_version, total_kg: 0, bags: 0 }
+      map[k].total_kg += parseFloat(g.available_kg || 0)
+      map[k].bags += 1
+    }
+    setPackLuzGroups(Object.values(map).sort((a,b) => (a.recipe_name||'').localeCompare(b.recipe_name||'')))
+  }
+  useEffect(() => { if (mode === 'pakowanie') { loadPackOrders(); loadPackLuzGroups() } }, [mode])
 
-  async function loadPackData(o) {
-    const code = o.recipes?.code
+  async function loadPackData(ctx) {
+    const code = ctx.recipes?.code
     const { data } = await supabase.from('v_finished_goods').select('*').order('received_date', { ascending: true })
     const rows = data || []
     const luz = rows.filter(g => g.recipe_code === code && (g.form === 'luz' || !g.form) && parseFloat(g.available_kg) > 0.001)
-    const done = rows.filter(g => g.order_id === o.id && g.form === 'spakowane').reduce((s,g) => s + parseFloat(g.original_kg || 0), 0)
+    const done = (ctx.kind === 'order')
+      ? rows.filter(g => g.order_id === ctx.id && g.form === 'spakowane').reduce((s,g) => s + parseFloat(g.original_kg || 0), 0)
+      : 0
     setPackLuz(luz); setPackDone(parseFloat(done.toFixed(3)))
   }
 
   async function selectPackOrder(o) {
-    setPackSel(o); setPackError(''); setPackMsg('')
+    const sel = { ...o, kind: 'order' }
+    setPackSel(sel); setPackError(''); setPackMsg('')
     setPackForm({
       unit_type: 'worek',
       pallets: o.pallets != null ? String(o.pallets) : '',
@@ -311,23 +327,31 @@ ${rows}
       unit_weight_kg: o.bag_weight_kg != null ? String(o.bag_weight_kg) : '',
       location: '', notes: ''
     })
-    await loadPackData(o)
+    await loadPackData(sel)
+  }
+
+  async function selectPackLuz(grp) {
+    const sel = { kind: 'luz', recipe_code: grp.recipe_code, recipe_name: grp.recipe_name, recipe_version: grp.recipe_version, recipes: { code: grp.recipe_code, name: grp.recipe_name, version: grp.recipe_version } }
+    setPackSel(sel); setPackError(''); setPackMsg('')
+    setPackForm({ unit_type: 'worek', pallets: '', bags_per_pallet: '', unit_weight_kg: '', location: '', notes: '' })
+    await loadPackData(sel)
   }
 
   const packUnits = (parseFloat(packForm.pallets) || 0) * (parseFloat(packForm.bags_per_pallet) || 0)
   const packKg = packUnits * (parseFloat(packForm.unit_weight_kg) || 0)
   const luzTotal = packLuz.reduce((s,g) => s + parseFloat(g.available_kg || 0), 0)
-  const packRemaining = packSel ? Math.max(0, parseFloat(packSel.quantity_kg) - packDone) : 0
+  const packRemaining = (packSel && packSel.kind === 'order') ? Math.max(0, parseFloat(packSel.quantity_kg) - packDone) : 0
 
   async function doPack() {
     if (!packSel) return
+    const isOrder = packSel.kind === 'order'
     const kg = parseFloat(packKg.toFixed(3))
     if (!kg || kg <= 0) { setPackError('Podaj liczbę i wagę jednostek'); return }
     if (kg > luzTotal + 0.001) { setPackError(`Za mało luzu na magazynie. Dostępne: ${luzTotal.toFixed(3)} kg`); return }
     setPackSaving(true); setPackError(''); setPackMsg('')
 
     const { data: op, error: opErr } = await supabase.from('packing_operations').insert({
-      order_id: packSel.id, packing_date: new Date().toISOString().slice(0,10),
+      order_id: isOrder ? packSel.id : null, packing_date: new Date().toISOString().slice(0,10),
       packed_by: profile?.id, total_packed_kg: kg, notes: packForm.notes || null
     }).select().single()
     if (opErr) { setPackError(opErr.message); setPackSaving(false); return }
@@ -352,8 +376,8 @@ ${rows}
 
     // spakowana jednostka -> finished_goods
     const { error: fgErr } = await supabase.from('finished_goods').insert({
-      production_batch_id: packSel.production_batch_id || primaryBatch,
-      order_id: packSel.id,
+      production_batch_id: (isOrder ? packSel.production_batch_id : null) || primaryBatch,
+      order_id: isOrder ? packSel.id : null,
       received_date: new Date().toISOString().slice(0,10),
       quantity_kg: kg,
       location: packForm.location || null,
@@ -369,14 +393,17 @@ ${rows}
     })
     if (fgErr) { setPackError(fgErr.message); setPackSaving(false); return }
 
-    const newDone = packDone + kg
-    if (newDone + 0.001 >= parseFloat(packSel.quantity_kg)) {
-      await supabase.from('orders').update({ status:'zrealizowane', updated_at: new Date().toISOString() }).eq('id', packSel.id)
+    if (isOrder) {
+      const newDone = packDone + kg
+      if (newDone + 0.001 >= parseFloat(packSel.quantity_kg)) {
+        await supabase.from('orders').update({ status:'zrealizowane', updated_at: new Date().toISOString() }).eq('id', packSel.id)
+      }
     }
     setPackSaving(false)
     setPackMsg(`Spakowano ${kg.toLocaleString('pl-PL')} kg (${packForm.pallets||0} pal × ${packForm.bags_per_pallet||0} × ${packForm.unit_weight_kg} kg ${packForm.unit_type==='worek'?'worki':'big bagi'}).`)
     await loadPackData(packSel)
     await loadPackOrders()
+    await loadPackLuzGroups()
     setPackForm(p => ({ ...p, pallets:'', notes:'' }))
   }
 
@@ -425,16 +452,51 @@ ${rows}
           )}
         </div>
 
+        <div className="card" style={{ marginBottom:10 }}>
+          <div style={{ fontWeight:500, fontSize:13, marginBottom:8, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span>Towar luzem na magazynie (do spakowania)</span>
+            <button className="btn btn-sm" onClick={loadPackLuzGroups}>Odśwież</button>
+          </div>
+          {packLuzGroups.length === 0 ? (
+            <div className="muted" style={{ fontSize:12 }}>Brak luzu na magazynie</div>
+          ) : (
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ minWidth:520 }}>
+                <thead><tr>
+                  <th>Receptura</th><th style={{ textAlign:'right' }}>Big bagi</th>
+                  <th style={{ textAlign:'right' }}>Luz dostępny (kg)</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {packLuzGroups.map(grp => (
+                    <tr key={grp.recipe_code} style={{ background: (packSel?.kind==='luz' && packSel?.recipe_code===grp.recipe_code) ? '#E1F5EE' : undefined }}>
+                      <td style={{ fontSize:12 }}><b>{grp.recipe_name}</b> <span className="muted">({grp.recipe_code} · {grp.recipe_version})</span></td>
+                      <td style={{ textAlign:'right' }}>{grp.bags}</td>
+                      <td style={{ textAlign:'right', fontWeight:600, color:'#0C447C' }}>{grp.total_kg.toLocaleString('pl-PL')} kg</td>
+                      <td><button className="btn btn-sm btn-primary" style={{ fontSize:11 }} onClick={() => selectPackLuz(grp)}>Pakuj</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {packSel && (
           <div className="card">
-            <div style={{ fontWeight:600, marginBottom:8 }}>Pakowanie zlecenia {packSel.order_number} — {packSel.client}</div>
+            <div style={{ fontWeight:600, marginBottom:8 }}>
+              {packSel.kind === 'order'
+                ? <>Pakowanie zlecenia {packSel.order_number} — {packSel.client}</>
+                : <>Pakowanie luzu — {packSel.recipe_name} <span className="muted">({packSel.recipe_version})</span></>}
+            </div>
             {packError && <div className="err-box">{packError}</div>}
             {packMsg && <div className="info-box" style={{ marginBottom:10 }}>{packMsg}</div>}
 
             <div className="stat-grid" style={{ marginBottom:10 }}>
-              <div className="stat-card"><div className="stat-label">Cel zlecenia</div><div className="stat-val" style={{ fontSize:18 }}>{parseFloat(packSel.quantity_kg).toLocaleString('pl-PL')} kg</div></div>
-              <div className="stat-card"><div className="stat-label">Już spakowano</div><div className="stat-val" style={{ fontSize:18, color:'#085041' }}>{packDone.toLocaleString('pl-PL')} kg</div></div>
-              <div className="stat-card"><div className="stat-label">Pozostało</div><div className="stat-val" style={{ fontSize:18, color:'#BA7517' }}>{packRemaining.toLocaleString('pl-PL')} kg</div></div>
+              {packSel.kind === 'order' && <>
+                <div className="stat-card"><div className="stat-label">Cel zlecenia</div><div className="stat-val" style={{ fontSize:18 }}>{parseFloat(packSel.quantity_kg).toLocaleString('pl-PL')} kg</div></div>
+                <div className="stat-card"><div className="stat-label">Już spakowano</div><div className="stat-val" style={{ fontSize:18, color:'#085041' }}>{packDone.toLocaleString('pl-PL')} kg</div></div>
+                <div className="stat-card"><div className="stat-label">Pozostało</div><div className="stat-val" style={{ fontSize:18, color:'#BA7517' }}>{packRemaining.toLocaleString('pl-PL')} kg</div></div>
+              </>}
               <div className="stat-card"><div className="stat-label">Luz dostępny</div><div className="stat-val" style={{ fontSize:18, color:'#0C447C' }}>{luzTotal.toLocaleString('pl-PL')} kg</div></div>
             </div>
 
