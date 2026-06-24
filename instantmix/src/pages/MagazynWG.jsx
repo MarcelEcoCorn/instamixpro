@@ -67,7 +67,7 @@ export default function MagazynWG() {
       supabase.from('v_finished_goods').select('*').order('received_date', { ascending: false }),
       supabase.from('wz_documents').select('*').order('created_at', { ascending: false }),
       supabase.from('v_production').select('id,lot_number,recipe_code,recipe_name,quantity_kg,production_date,client').order('production_date', { ascending: false }),
-      supabase.from('orders').select('id,order_number,client,quantity_kg,recipe_id,recipes(name,code)').in('status', ['w_realizacji', 'zrealizowane']).order('ship_date'),
+      supabase.from('orders').select('id,order_number,client,quantity_kg,recipe_id,recipes(name,code)').in('status', ['nowe', 'w_realizacji']).order('ship_date'),
       supabase.from('fg_corrections').select('*').order('created_at', { ascending: false }),
     ])
     const batchIds = (g || []).map(x => x.production_batch_id).filter(Boolean)
