@@ -6,7 +6,7 @@ const STATUS_LABELS = {
   nowe: 'Nowe',
   w_realizacji: 'W realizacji',
   zrealizowane: 'Zrealizowane',
-  wyslane: 'Wysłane do klienta',
+  wyslane: 'Wydane do klienta',
   anulowane: 'Anulowane'
 }
 const STATUS_COLORS = {
@@ -17,7 +17,19 @@ const STATUS_COLORS = {
   anulowane: 'b-gray'
 }
 
-const EMPTY_FORM = { client:'', recipe_id:'', quantity_kg:'', ship_date:'', status:'nowe', notes:'' }
+const EMPTY_FORM = {
+  client_id:'', client:'', recipe_id:'',
+  pallets:'', bags_per_pallet:'', bag_weight_kg:'',
+  quantity_kg:'', ship_date:'', status:'nowe', notes:''
+}
+
+// Przeliczenie wagi do produkcji: palety × worki/paleta × waga worka
+function computeKg(form) {
+  const p = parseFloat(form.pallets) || 0
+  const b = parseFloat(form.bags_per_pallet) || 0
+  const w = parseFloat(form.bag_weight_kg) || 0
+  return p * b * w
+}
 
 export default function Zlecenia() {
   const { profile } = useAuth()
@@ -27,6 +39,7 @@ export default function Zlecenia() {
 
   const [orders, setOrders] = useState([])
   const [recipes, setRecipes] = useState([])
+  const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('aktywne')
@@ -47,19 +60,21 @@ export default function Zlecenia() {
 
   async function load() {
     setLoading(true)
-    const [{ data: o }, { data: r }] = await Promise.all([
+    const [{ data: o }, { data: r }, { data: c }] = await Promise.all([
       supabase.from('orders').select('*, recipes(code, name, version, production_line), production_batches(lot_number)').order('ship_date', { ascending: true }),
-      supabase.from('recipes').select('id,code,name,version,client').eq('status','dopuszczona').order('client,code')
+      supabase.from('recipes').select('id,code,name,version,client,client_id').eq('status','dopuszczona').order('client,code'),
+      supabase.from('clients').select('id,number,name,status,is_sample').eq('status','aktywny').order('name')
     ])
     setOrders(o || [])
     setRecipes(r || [])
+    setClients(c || [])
     setLoading(false)
     setLastUpdated(new Date())
   }
 
   const filtered = orders.filter(o => {
     const q = search.toLowerCase()
-    const matchQ = !q || o.order_number.toLowerCase().includes(q) || o.client.toLowerCase().includes(q) || (o.recipes?.name||'').toLowerCase().includes(q)
+    const matchQ = !q || o.order_number.toLowerCase().includes(q) || (o.client||'').toLowerCase().includes(q) || (o.recipes?.name||'').toLowerCase().includes(q)
     const matchStatus = filterStatus === 'wszystkie' ? true :
       filterStatus === 'aktywne' ? ['nowe','w_realizacji'].includes(o.status) : o.status === filterStatus
     return matchQ && matchStatus
@@ -74,10 +89,20 @@ export default function Zlecenia() {
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
+  // wybór klienta z listy → ustaw client_id + nazwę
+  function pickClient(id) {
+    const c = clients.find(x => x.id === id)
+    setForm(p => ({ ...p, client_id: id, client: c ? c.name : '' }))
+  }
+
   function openNew() { setForm(EMPTY_FORM); setEditMode(false); setError(''); setModal(true) }
 
   function openEdit(order) {
-    setForm({ id:order.id, client:order.client, recipe_id:order.recipe_id, quantity_kg:order.quantity_kg, ship_date:order.ship_date, status:order.status, notes:order.notes||'' })
+    setForm({
+      id:order.id, client_id:order.client_id||'', client:order.client||'', recipe_id:order.recipe_id,
+      pallets:order.pallets??'', bags_per_pallet:order.bags_per_pallet??'', bag_weight_kg:order.bag_weight_kg??'',
+      quantity_kg:order.quantity_kg, ship_date:order.ship_date, status:order.status, notes:order.notes||''
+    })
     setEditMode(true); setError(''); setModal(true)
   }
 
@@ -92,24 +117,33 @@ export default function Zlecenia() {
   }
 
   async function save() {
-    if (!form.client) { setError('Klient jest wymagany'); return }
+    if (!form.client) { setError('Wybierz klienta'); return }
     if (!form.recipe_id) { setError('Wybierz recepturę'); return }
-    if (!form.quantity_kg) { setError('Ilość jest wymagana'); return }
+    const computed = computeKg(form)
+    const finalKg = computed > 0 ? computed : (parseFloat(form.quantity_kg) || 0)
+    if (!finalKg || finalKg <= 0) { setError('Podaj sposób pakowania lub ilość ręczną'); return }
     if (!form.ship_date) { setError('Data wysyłki jest wymagana'); return }
     setSaving(true); setError('')
+
+    const payload = {
+      client_id: form.client_id || null,
+      client: form.client,
+      recipe_id: form.recipe_id,
+      pallets: form.pallets === '' ? null : parseInt(form.pallets),
+      bags_per_pallet: form.bags_per_pallet === '' ? null : parseInt(form.bags_per_pallet),
+      bag_weight_kg: form.bag_weight_kg === '' ? null : parseFloat(form.bag_weight_kg),
+      quantity_kg: finalKg,
+      ship_date: form.ship_date,
+      status: form.status,
+      notes: form.notes || null
+    }
+
     if (editMode) {
-      const { error: err } = await supabase.from('orders').update({
-        client: form.client, recipe_id: form.recipe_id, quantity_kg: parseFloat(form.quantity_kg),
-        ship_date: form.ship_date, status: form.status, notes: form.notes||null, updated_at: new Date().toISOString()
-      }).eq('id', form.id)
+      const { error: err } = await supabase.from('orders').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', form.id)
       if (err) { setError(err.message); setSaving(false); return }
     } else {
       const orderNumber = await generateOrderNumber()
-      const { error: err } = await supabase.from('orders').insert({
-        order_number: orderNumber, client: form.client, recipe_id: form.recipe_id,
-        quantity_kg: parseFloat(form.quantity_kg), ship_date: form.ship_date,
-        status: form.status, notes: form.notes||null, created_by: profile?.id
-      })
+      const { error: err } = await supabase.from('orders').insert({ ...payload, order_number: orderNumber, created_by: profile?.id })
       if (err) { setError(err.message); setSaving(false); return }
     }
     setSaving(false); setModal(false); load()
@@ -138,6 +172,8 @@ export default function Zlecenia() {
     if (days <= 7) return <span className="badge b-warn" style={{ fontSize:10, marginLeft:6 }}>{days}d</span>
     return null
   }
+
+  const computedKg = computeKg(form)
 
   return (
     <div>
@@ -186,7 +222,12 @@ export default function Zlecenia() {
                   <div style={{ fontWeight:500, fontSize:13 }}>{o.recipes?.name}</div>
                   <div className="muted" style={{ fontSize:11 }}>{o.recipes?.code} · {o.recipes?.version}</div>
                 </td>
-                <td style={{ fontWeight:500, textAlign:'right' }}>{parseFloat(o.quantity_kg).toLocaleString('pl-PL')} kg</td>
+                <td style={{ textAlign:'right' }}>
+                  <div style={{ fontWeight:500 }}>{parseFloat(o.quantity_kg).toLocaleString('pl-PL')} kg</div>
+                  {o.pallets && o.bags_per_pallet && o.bag_weight_kg
+                    ? <div className="muted" style={{ fontSize:10 }}>{o.pallets} pal × {o.bags_per_pallet} × {parseFloat(o.bag_weight_kg).toLocaleString('pl-PL')} kg</div>
+                    : null}
+                </td>
                 <td>
                   <span className="muted">{o.ship_date}</span>
                   {shipDateBadge(o)}
@@ -229,18 +270,51 @@ export default function Zlecenia() {
           <div className="modal-title">{editMode?'Edytuj zlecenie':'Nowe zlecenie produkcyjne'}</div>
           {error && <div className="err-box">{error}</div>}
           <div className="fr">
-            <div><label>Klient *</label><input value={form.client} onChange={e => f('client',e.target.value)} placeholder="Nazwa klienta" /></div>
+            <div>
+              <label>Klient *</label>
+              <select value={form.client_id} onChange={e => pickClient(e.target.value)}>
+                <option value="">— wybierz klienta —</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.number ? c.number + ' — ' : ''}{c.name}</option>)}
+                {form.client && !form.client_id &&
+                  <option value="" disabled>(obecnie: {form.client})</option>}
+              </select>
+            </div>
             <div><label>Data wysyłki *</label><input type="date" value={form.ship_date} onChange={e => f('ship_date',e.target.value)} /></div>
           </div>
           <div style={{ marginBottom:10 }}>
             <label>Receptura *</label>
-            <select value={form.recipe_id} onChange={e => { f('recipe_id',e.target.value); const r = recipes.find(x=>x.id===e.target.value); if(r?.client) f('client', r.client) }}>
+            <select value={form.recipe_id} onChange={e => {
+              f('recipe_id', e.target.value)
+              const r = recipes.find(x=>x.id===e.target.value)
+              if (r && !form.client_id) {
+                if (r.client_id && clients.some(c=>c.id===r.client_id)) pickClient(r.client_id)
+                else if (r.client) f('client', r.client)
+              }
+            }}>
               <option value="">— wybierz recepturę —</option>
               {recipes.map(r => <option key={r.id} value={r.id}>{r.client ? r.client + ' › ' : ''}{r.code} › {r.name} ({r.version})</option>)}
             </select>
           </div>
+
+          <div style={{ background:'#F7F6F1', border:'0.5px solid #E3E1D8', borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:'#085041', marginBottom:8 }}>Sposób pakowania</div>
+            <div className="fr" style={{ marginBottom:0 }}>
+              <div><label>Palety</label><input type="number" min="0" step="1" value={form.pallets} onChange={e => f('pallets',e.target.value)} placeholder="np. 4" /></div>
+              <div><label>Worków na palecie</label><input type="number" min="0" step="1" value={form.bags_per_pallet} onChange={e => f('bags_per_pallet',e.target.value)} placeholder="np. 40" /></div>
+              <div><label>Waga 1 worka (kg)</label><input type="number" min="0" step="0.001" value={form.bag_weight_kg} onChange={e => f('bag_weight_kg',e.target.value)} placeholder="np. 25" /></div>
+            </div>
+            <div style={{ marginTop:8, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span style={{ fontSize:12, color:'#5b5b53' }}>Waga do wyprodukowania:</span>
+              <span style={{ fontSize:16, fontWeight:700, color:'#085041' }}>
+                {computedKg > 0 ? computedKg.toLocaleString('pl-PL') + ' kg' : '—'}
+              </span>
+            </div>
+          </div>
+
           <div className="fr">
-            <div><label>Ilość (kg) *</label><input type="number" step="0.001" value={form.quantity_kg} onChange={e => f('quantity_kg',e.target.value)} /></div>
+            {computedKg <= 0 && (
+              <div><label>Ilość ręczna (kg)</label><input type="number" step="0.001" value={form.quantity_kg} onChange={e => f('quantity_kg',e.target.value)} placeholder="gdy bez pakowania" /></div>
+            )}
             <div><label>Status</label>
               <select value={form.status} onChange={e => f('status',e.target.value)}>
                 {Object.entries(STATUS_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
