@@ -141,7 +141,7 @@ export default function MagazynWG() {
     setSelectedProdBatch(null); load()
   }
 
-  function openEdit(good) { setEditGood(good); setEditForm({ received_date: good.received_date, quantity_kg: good.original_kg, location: good.location || '', notes: good.notes || '', form: good.form || 'luz', unit_type: good.unit_type || 'big_bag', unit_weight_kg: good.unit_weight_kg ?? '', unit_count: good.unit_count ?? '' }); setError(''); setEditModal(true) }
+  function openEdit(good) { setEditGood(good); setEditForm({ received_date: good.received_date, quantity_kg: good.original_kg, location: good.location || '', notes: good.notes || '', form: good.form || 'luz', unit_type: good.unit_type || 'big_bag', unit_weight_kg: good.unit_weight_kg ?? '', unit_count: good.unit_count ?? '', pallets: good.pallets ?? '', bags_per_pallet: good.bags_per_pallet ?? '' }); setError(''); setEditModal(true) }
 
   async function saveEdit() {
     if (!editForm.received_date || !editForm.quantity_kg) { setError('Uzupełnij wymagane pola'); return }
@@ -155,6 +155,8 @@ export default function MagazynWG() {
       unit_type: editForm.unit_type || 'big_bag',
       unit_weight_kg: editForm.unit_weight_kg === '' ? null : parseFloat(editForm.unit_weight_kg),
       unit_count: editForm.unit_count === '' ? null : parseInt(editForm.unit_count),
+      pallets: editForm.pallets === '' ? null : parseInt(editForm.pallets),
+      bags_per_pallet: editForm.bags_per_pallet === '' ? null : parseInt(editForm.bags_per_pallet),
       updated_at: new Date().toISOString()
     }).eq('id', editGood.id)
     setSavingEdit(false)
@@ -340,7 +342,8 @@ export default function MagazynWG() {
       const cnt = g.unit_count || 0
       const w = parseFloat(g.unit_weight_kg || 0)
       const unit = g.unit_type === 'worek' ? 'wor.' : 'BB'
-      return { text: `${cnt} × ${w.toLocaleString('pl-PL')} kg ${unit}`, cls: 'b-purple' }
+      const pal = g.pallets ? `${g.pallets} pal · ` : ''
+      return { text: `${pal}${cnt} × ${w.toLocaleString('pl-PL')} kg ${unit}`, cls: 'b-purple' }
     }
     // domyślnie luz (big bag)
     const w = parseFloat(g?.unit_weight_kg || g?.original_kg || 0)
@@ -683,6 +686,10 @@ export default function MagazynWG() {
                   <option value="worek">Worek</option>
                 </select>
               </div>
+            </div>
+            <div className="fr" style={{ marginBottom:8 }}>
+              <div><label>Palety</label><input type="number" min="0" step="1" value={editForm.pallets??''} onChange={e => setEditForm(p=>({...p,pallets:e.target.value}))} placeholder="np. 1" /></div>
+              <div><label>Jednostek na palecie</label><input type="number" min="0" step="1" value={editForm.bags_per_pallet??''} onChange={e => setEditForm(p=>({...p,bags_per_pallet:e.target.value}))} placeholder="np. 40" /></div>
             </div>
             <div className="fr" style={{ marginBottom:0 }}>
               <div><label>Liczba jednostek</label><input type="number" min="0" step="1" value={editForm.unit_count??''} onChange={e => setEditForm(p=>({...p,unit_count:e.target.value}))} placeholder="np. 15" /></div>
