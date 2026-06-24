@@ -250,7 +250,11 @@ export default function MagazynWG() {
     const wzNumber = await generateWzNumber()
     const { error: err } = await supabase.from('wz_documents').insert({ wz_number: wzNumber, finished_good_id: wzGood.id, order_id: wzGood.order_id || null, issue_date: wzForm.issue_date, quantity_kg: parseFloat(wzForm.quantity_kg), recipient: wzForm.recipient || null, carrier: wzForm.carrier || null, notes: wzForm.notes || null, unit_type: wzForm.unit_type || null, pallets: wzForm.pallets === '' ? null : parseInt(wzForm.pallets), unit_count: wzForm.unit_count === '' ? null : parseInt(wzForm.unit_count), unit_weight_kg: wzForm.unit_weight_kg === '' ? null : parseFloat(wzForm.unit_weight_kg), issued_by: profile?.id })
     if (err) { setError(err.message); setSaving(false); return }
-    if (wzGood.order_id && parseFloat(wzGood.available_kg) - parseFloat(wzForm.quantity_kg) <= 0.001) await supabase.from('orders').update({ status: 'wyslane', updated_at: new Date().toISOString() }).eq('id', wzGood.order_id)
+    if (wzGood.order_id) {
+      const { data: og } = await supabase.from('v_finished_goods').select('available_kg').eq('order_id', wzGood.order_id)
+      const totalAvail = (og || []).reduce((s, r) => s + parseFloat(r.available_kg || 0), 0)
+      if (totalAvail <= 0.001) await supabase.from('orders').update({ status: 'wyslane', updated_at: new Date().toISOString() }).eq('id', wzGood.order_id)
+    }
     setSaving(false); setWzModal(false)
     setPrintWzData({ wzNumber, good: wzGood, form: { ...wzForm } }); load()
   }
@@ -383,6 +387,17 @@ export default function MagazynWG() {
   const fmt3 = v => parseFloat(v || 0).toFixed(3)
 
   // opis formy towaru: luz = big bag, spakowane = worki/BB o danej wadze
+  // liczba big bagów luzu = dostępne / waga 1 BB
+  function bbCount(g) {
+    const w = parseFloat(g?.unit_weight_kg || 0)
+    const avail = parseFloat(g?.available_kg ?? g?.original_kg ?? 0)
+    return w > 0 ? Math.round(avail / w) : 1
+  }
+  function hasBreakdown(g) {
+    if (g?.form === 'spakowane') return parseInt(g.pallets) > 0
+    return bbCount(g) > 1
+  }
+
   function formLabel(g) {
     const w = parseFloat(g?.unit_weight_kg || 0)
     const avail = parseFloat(g?.available_kg ?? g?.original_kg ?? 0)
@@ -394,8 +409,9 @@ export default function MagazynWG() {
       const palStr = pal ? `${pal} pal · ` : ''
       return { text: `${palStr}${cnt} × ${w.toLocaleString('pl-PL')} kg ${unit}`, cls: 'b-purple' }
     }
-    // luz (big bag) — pozostała waga
-    return { text: `1 BB · ${avail.toLocaleString('pl-PL')} kg`, cls: 'b-info' }
+    // luz (big bag) — liczba BB i pozostała waga
+    const n = bbCount(g)
+    return { text: `${n} BB · ${avail.toLocaleString('pl-PL')} kg`, cls: 'b-info' }
   }
 
   return (
@@ -586,7 +602,7 @@ export default function MagazynWG() {
                                   <React.Fragment key={g.id}>
                                     <tr style={{ background:avail<=0?'#F1EFE8':'#fff' }}>
                                       <td style={{ textAlign:'center' }}>
-                                        {(gCorrs.length>0||gWz.length>0||g.pallets>0) && (
+                                        {(gCorrs.length>0||gWz.length>0||hasBreakdown(g)) && (
                                           <button onClick={() => setExpandedGood(gExpanded?null:g.id)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:11, color:'#5F5E5A', padding:'1px 3px' }}>
                                             {gExpanded?'▲':'▼'}
                                           </button>
@@ -621,49 +637,71 @@ export default function MagazynWG() {
                                     {gExpanded && (
                                       <tr>
                                         <td colSpan={11} style={{ padding:'6px 8px 8px 48px', background:'#F1EFE8' }}>
-                                          {g.pallets>0 && (() => {
-                                            const W = parseFloat(g.unit_weight_kg)||0
-                                            const B = g.bags_per_pallet ? parseInt(g.bags_per_pallet) : (g.pallets ? Math.round((parseInt(g.unit_count)||0)/parseInt(g.pallets)) : 0)
+                                          {hasBreakdown(g) && (() => {
+                                            const fmtZl = v => v>0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
                                             const avail = parseFloat(g.available_kg||0)
-                                            const totalUnits = W>0 ? Math.round(avail/W) : (parseInt(g.unit_count)||0)
-                                            const fullP = B>0 ? Math.floor(totalUnits/B) : 0
-                                            const rem = B>0 ? (totalUnits - fullP*B) : 0
-                                            const palCount = fullP + (rem>0?1:0)
-                                            const sing = g.unit_type==='worek' ? 'worek' : 'big bag'
-                                            const plur = g.unit_type==='worek' ? 'worki' : 'big bagi'
-                                            const uname = n => n===1 ? sing : plur
+                                            const W = parseFloat(g.unit_weight_kg)||0
                                             const totalVal = (() => { const total=batchValues[g.production_batch_id]||0; const origKg=parseFloat(g.original_kg||0); if(total<=0||origKg<=0) return 0; return Math.round((avail/origKg)*total*100)/100 })()
                                             const valPerKg = avail>0 ? totalVal/avail : 0
-                                            const fmtZl = v => v>0 ? v.toLocaleString('pl-PL',{minimumFractionDigits:2,maximumFractionDigits:2})+' zł' : '—'
-                                            const palRows = []
-                                            for (let i=0;i<fullP;i++) palRows.push(B)
-                                            if (rem>0) palRows.push(rem)
+                                            if (g.form === 'spakowane') {
+                                              const B = g.bags_per_pallet ? parseInt(g.bags_per_pallet) : (g.pallets ? Math.round((parseInt(g.unit_count)||0)/parseInt(g.pallets)) : 0)
+                                              const totalUnits = W>0 ? Math.round(avail/W) : (parseInt(g.unit_count)||0)
+                                              const fullP = B>0 ? Math.floor(totalUnits/B) : 0
+                                              const rem = B>0 ? (totalUnits - fullP*B) : 0
+                                              const palCount = fullP + (rem>0?1:0)
+                                              const sing = g.unit_type==='worek' ? 'worek' : 'big bag'
+                                              const plur = g.unit_type==='worek' ? 'worki' : 'big bagi'
+                                              const uname = n => n===1 ? sing : plur
+                                              const palRows = []
+                                              for (let i=0;i<fullP;i++) palRows.push(B)
+                                              if (rem>0) palRows.push(rem)
+                                              return (
+                                                <div style={{ marginBottom:8 }}>
+                                                  <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#3C3489' }}>Rozbicie na palety (pozostało)</div>
+                                                  <table style={{ width:'auto', minWidth:460 }}>
+                                                    <thead><tr><th>Paleta</th><th style={{ textAlign:'right' }}>Jednostki</th><th style={{ textAlign:'right' }}>Waga (kg)</th><th style={{ textAlign:'right' }}>Wart. surowców</th></tr></thead>
+                                                    <tbody>
+                                                      <tr style={{ fontWeight:600, background:'#EEEDFE' }}>
+                                                        <td>Razem: {palCount} pal</td>
+                                                        <td style={{ textAlign:'right' }}>{totalUnits} {uname(totalUnits)}</td>
+                                                        <td style={{ textAlign:'right' }}>{fmt3(avail)}</td>
+                                                        <td style={{ textAlign:'right' }}>{fmtZl(totalVal)}</td>
+                                                      </tr>
+                                                      {palRows.map((u,i) => (
+                                                        <tr key={i}>
+                                                          <td className="muted">Paleta {i+1}{u<B?' (częściowa)':''}</td>
+                                                          <td style={{ textAlign:'right' }}>{u} {uname(u)}</td>
+                                                          <td style={{ textAlign:'right' }}>{fmt3(u*W)}</td>
+                                                          <td style={{ textAlign:'right', color:'#3C3489' }}>{fmtZl(valPerKg*u*W)}</td>
+                                                        </tr>
+                                                      ))}
+                                                      {palCount===0 && <tr><td colSpan={4} className="muted" style={{ fontSize:11 }}>Wydano w całości</td></tr>}
+                                                    </tbody>
+                                                  </table>
+                                                </div>
+                                              )
+                                            }
+                                            // luz — rozbicie na big bagi
+                                            const nBB = W>0 ? Math.round(avail/W) : 1
                                             return (
                                               <div style={{ marginBottom:8 }}>
-                                                <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#3C3489' }}>Rozbicie na palety (pozostało)</div>
-                                                <table style={{ width:'auto', minWidth:460 }}>
-                                                  <thead><tr>
-                                                    <th>Paleta</th>
-                                                    <th style={{ textAlign:'right' }}>Jednostki</th>
-                                                    <th style={{ textAlign:'right' }}>Waga (kg)</th>
-                                                    <th style={{ textAlign:'right' }}>Wart. surowców</th>
-                                                  </tr></thead>
+                                                <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#3C3489' }}>Rozbicie na big bagi (pozostało)</div>
+                                                <table style={{ width:'auto', minWidth:380 }}>
+                                                  <thead><tr><th>Big bag</th><th style={{ textAlign:'right' }}>Waga (kg)</th><th style={{ textAlign:'right' }}>Wart. surowców</th></tr></thead>
                                                   <tbody>
                                                     <tr style={{ fontWeight:600, background:'#EEEDFE' }}>
-                                                      <td>Razem: {palCount} pal</td>
-                                                      <td style={{ textAlign:'right' }}>{totalUnits} {uname(totalUnits)}</td>
+                                                      <td>Razem: {nBB} BB</td>
                                                       <td style={{ textAlign:'right' }}>{fmt3(avail)}</td>
                                                       <td style={{ textAlign:'right' }}>{fmtZl(totalVal)}</td>
                                                     </tr>
-                                                    {palRows.map((u,i) => (
+                                                    {Array.from({ length:nBB }).map((_,i) => (
                                                       <tr key={i}>
-                                                        <td className="muted">Paleta {i+1}{u<B?' (częściowa)':''}</td>
-                                                        <td style={{ textAlign:'right' }}>{u} {uname(u)}</td>
-                                                        <td style={{ textAlign:'right' }}>{fmt3(u*W)}</td>
-                                                        <td style={{ textAlign:'right', color:'#3C3489' }}>{fmtZl(valPerKg*u*W)}</td>
+                                                        <td className="muted">Big bag {i+1}</td>
+                                                        <td style={{ textAlign:'right' }}>{fmt3(W)}</td>
+                                                        <td style={{ textAlign:'right', color:'#3C3489' }}>{fmtZl(valPerKg*W)}</td>
                                                       </tr>
                                                     ))}
-                                                    {palCount===0 && <tr><td colSpan={4} className="muted" style={{ fontSize:11 }}>Wydano w całości</td></tr>}
+                                                    {nBB===0 && <tr><td colSpan={3} className="muted" style={{ fontSize:11 }}>Wydano w całości</td></tr>}
                                                   </tbody>
                                                 </table>
                                               </div>
