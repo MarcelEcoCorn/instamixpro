@@ -28,7 +28,7 @@ export default function MagazynWG() {
   const [search, setSearch] = useState('')
   const [filterView, setFilterView] = useState('aktywne')
   const [acceptModal, setAcceptModal] = useState(false)
-  const [acceptForm, setAcceptForm] = useState({ production_batch_id: '', order_id: '', received_date: new Date().toISOString().slice(0, 10), quantity_kg: '', location: '', notes: '' })
+  const [acceptForm, setAcceptForm] = useState({ production_batch_id: '', order_id: '', received_date: new Date().toISOString().slice(0, 10), quantity_kg: '', bag_count: '1', location: '', notes: '' })
   const [selectedProdBatch, setSelectedProdBatch] = useState(null)
   const [editModal, setEditModal] = useState(false)
   const [editGood, setEditGood] = useState(null)
@@ -133,11 +133,20 @@ export default function MagazynWG() {
     if (selectedProdBatch?.production_date && acceptForm.received_date < selectedProdBatch.production_date) { setError('Data przyjęcia nie może być wcześniejsza niż data produkcji'); return }
     setSaving(true); setError('')
     const qty = parseFloat(acceptForm.quantity_kg)
-    const { error: err } = await supabase.from('finished_goods').insert({ production_batch_id: acceptForm.production_batch_id, order_id: acceptForm.order_id || null, received_date: acceptForm.received_date, quantity_kg: qty, location: acceptForm.location || null, notes: acceptForm.notes || null, form: 'luz', unit_type: 'big_bag', unit_count: 1, unit_weight_kg: qty, created_by: profile?.id })
+    const n = Math.max(1, parseInt(acceptForm.bag_count) || 1)
+    const base = Math.floor((qty / n) * 1000) / 1000
+    const rows = []
+    let acc = 0
+    for (let i = 0; i < n; i++) {
+      const w = i === n - 1 ? parseFloat((qty - acc).toFixed(3)) : base
+      acc = parseFloat((acc + base).toFixed(3))
+      rows.push({ production_batch_id: acceptForm.production_batch_id, order_id: acceptForm.order_id || null, received_date: acceptForm.received_date, quantity_kg: w, location: acceptForm.location || null, notes: acceptForm.notes || null, form: 'luz', unit_type: 'big_bag', unit_count: 1, unit_weight_kg: w, created_by: profile?.id })
+    }
+    const { error: err } = await supabase.from('finished_goods').insert(rows)
     if (err) { setError(err.message); setSaving(false); return }
     if (acceptForm.order_id) await supabase.from('orders').update({ status: 'w_realizacji', updated_at: new Date().toISOString() }).eq('id', acceptForm.order_id)
     setSaving(false); setAcceptModal(false)
-    setAcceptForm({ production_batch_id: '', order_id: '', received_date: new Date().toISOString().slice(0, 10), quantity_kg: '', location: '', notes: '' })
+    setAcceptForm({ production_batch_id: '', order_id: '', received_date: new Date().toISOString().slice(0, 10), quantity_kg: '', bag_count: '1', location: '', notes: '' })
     setSelectedProdBatch(null); load()
   }
 
@@ -684,14 +693,21 @@ export default function MagazynWG() {
           </div>
           <div className="fr">
             <div><label>Data przyjęcia</label><input type="date" value={acceptForm.received_date} min={selectedProdBatch?.production_date||undefined} onChange={e => af('received_date', e.target.value)} /></div>
-            <div><label>Ilość (kg) *</label><input type="number" step="0.001" value={acceptForm.quantity_kg} onChange={e => af('quantity_kg', e.target.value)} /></div>
+            <div><label>Ilość łącznie (kg) *</label><input type="number" step="0.001" value={acceptForm.quantity_kg} onChange={e => af('quantity_kg', e.target.value)} /></div>
+            <div><label>Liczba big bagów</label><input type="number" min="1" step="1" value={acceptForm.bag_count} onChange={e => af('bag_count', e.target.value)} /></div>
           </div>
           <div className="fr">
             <div><label>Lokalizacja magazynowa</label><input value={acceptForm.location} onChange={e => af('location', e.target.value)} placeholder="np. Regał A-3" /></div>
             <div><label>Uwagi</label><input value={acceptForm.notes} onChange={e => af('notes', e.target.value)} placeholder="opcjonalne" /></div>
           </div>
           <div className="muted" style={{ fontSize:11, marginBottom:8, padding:'6px 10px', background:'#E6F1FB', borderRadius:6, color:'#0C447C' }}>
-            Towar przyjmowany jest jako <b>1 big bag (luz)</b> o podanej wadze. Podział na worki nastąpi w pakowaniu.
+            {(() => {
+              const q = parseFloat(acceptForm.quantity_kg) || 0
+              const n = Math.max(1, parseInt(acceptForm.bag_count) || 1)
+              if (n <= 1) return <>Towar przyjmowany jako <b>1 big bag (luz)</b> o podanej wadze. Podział na worki nastąpi w pakowaniu.</>
+              const per = q > 0 ? (q / n) : 0
+              return <>Powstanie <b>{n} osobnych big bagów (luz)</b>{q > 0 ? <> po ~<b>{per.toLocaleString('pl-PL',{maximumFractionDigits:3})} kg</b></> : ''}. Wagi pojedynczych BB możesz potem skorygować w „Edytuj".</>
+            })()}
           </div>
           <div className="modal-footer">
             <button className="btn" onClick={() => setAcceptModal(false)}>Anuluj</button>
