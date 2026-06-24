@@ -19,6 +19,18 @@ export default function Kalkulator() {
   const [orders, setOrders] = useState([])
   const [ordersLoading, setOrdersLoading] = useState(true)
 
+  // ── Tryb PAKOWANIE ──────────────────────────────────────────
+  const canPack = ['admin','technolog','brygadzista'].includes(profile?.role)
+  const [mode, setMode] = useState('produkcja')
+  const [packOrders, setPackOrders] = useState([])
+  const [packSel, setPackSel] = useState(null)
+  const [packLuz, setPackLuz] = useState([])
+  const [packDone, setPackDone] = useState(0)
+  const [packForm, setPackForm] = useState({ unit_type:'worek', unit_count:'', unit_weight_kg:'', location:'', notes:'' })
+  const [packSaving, setPackSaving] = useState(false)
+  const [packError, setPackError] = useState('')
+  const [packMsg, setPackMsg] = useState('')
+
   useEffect(() => { loadOrders(); loadClients() }, [])
 
   async function loadClients() {
@@ -271,6 +283,196 @@ ${rows}
     win.document.close()
   }
 
+  // ── Funkcje PAKOWANIE ───────────────────────────────────────
+  async function loadPackOrders() {
+    const { data } = await supabase.from('orders')
+      .select('*, recipes(code,name,version)')
+      .eq('status','w_realizacji')
+      .order('ship_date', { ascending: true })
+    setPackOrders(data || [])
+  }
+  useEffect(() => { if (mode === 'pakowanie') loadPackOrders() }, [mode])
+
+  async function loadPackData(o) {
+    const code = o.recipes?.code
+    const { data } = await supabase.from('v_finished_goods').select('*').order('received_date', { ascending: true })
+    const rows = data || []
+    const luz = rows.filter(g => g.recipe_code === code && (g.form === 'luz' || !g.form) && parseFloat(g.available_kg) > 0.001)
+    const done = rows.filter(g => g.order_id === o.id && g.form === 'spakowane').reduce((s,g) => s + parseFloat(g.original_kg || 0), 0)
+    setPackLuz(luz); setPackDone(parseFloat(done.toFixed(3)))
+  }
+
+  async function selectPackOrder(o) {
+    setPackSel(o); setPackError(''); setPackMsg('')
+    setPackForm({
+      unit_type: 'worek',
+      unit_count: (o.pallets && o.bags_per_pallet) ? String(o.pallets * o.bags_per_pallet) : '',
+      unit_weight_kg: o.bag_weight_kg != null ? String(o.bag_weight_kg) : '',
+      location: '', notes: ''
+    })
+    await loadPackData(o)
+  }
+
+  const packKg = (parseFloat(packForm.unit_count) || 0) * (parseFloat(packForm.unit_weight_kg) || 0)
+  const luzTotal = packLuz.reduce((s,g) => s + parseFloat(g.available_kg || 0), 0)
+  const packRemaining = packSel ? Math.max(0, parseFloat(packSel.quantity_kg) - packDone) : 0
+
+  async function doPack() {
+    if (!packSel) return
+    const kg = parseFloat(packKg.toFixed(3))
+    if (!kg || kg <= 0) { setPackError('Podaj liczbę i wagę jednostek'); return }
+    if (kg > luzTotal + 0.001) { setPackError(`Za mało luzu na magazynie. Dostępne: ${luzTotal.toFixed(3)} kg`); return }
+    setPackSaving(true); setPackError(''); setPackMsg('')
+
+    const { data: op, error: opErr } = await supabase.from('packing_operations').insert({
+      order_id: packSel.id, packing_date: new Date().toISOString().slice(0,10),
+      packed_by: profile?.id, total_packed_kg: kg, notes: packForm.notes || null
+    }).select().single()
+    if (opErr) { setPackError(opErr.message); setPackSaving(false); return }
+
+    // FIFO zużycie luzu
+    let remaining = kg
+    const consumed = []
+    let primaryBatch = null
+    for (const g of packLuz) {
+      if (remaining <= 0.001) break
+      const take = Math.min(remaining, parseFloat(g.available_kg))
+      if (take > 0.001) {
+        consumed.push({ packing_operation_id: op.id, source_finished_good_id: g.id, quantity_kg: parseFloat(take.toFixed(3)) })
+        if (!primaryBatch) primaryBatch = g.production_batch_id
+        remaining = parseFloat((remaining - take).toFixed(3))
+      }
+    }
+    if (consumed.length) {
+      const { error: pcErr } = await supabase.from('packing_consumed').insert(consumed)
+      if (pcErr) { setPackError(pcErr.message); setPackSaving(false); return }
+    }
+
+    // spakowana jednostka -> finished_goods
+    const { error: fgErr } = await supabase.from('finished_goods').insert({
+      production_batch_id: packSel.production_batch_id || primaryBatch,
+      order_id: packSel.id,
+      received_date: new Date().toISOString().slice(0,10),
+      quantity_kg: kg,
+      location: packForm.location || null,
+      notes: packForm.notes || null,
+      form: 'spakowane',
+      unit_type: packForm.unit_type,
+      unit_count: parseInt(packForm.unit_count),
+      unit_weight_kg: parseFloat(packForm.unit_weight_kg),
+      packing_operation_id: op.id,
+      created_by: profile?.id
+    })
+    if (fgErr) { setPackError(fgErr.message); setPackSaving(false); return }
+
+    const newDone = packDone + kg
+    if (newDone + 0.001 >= parseFloat(packSel.quantity_kg)) {
+      await supabase.from('orders').update({ status:'zrealizowane', updated_at: new Date().toISOString() }).eq('id', packSel.id)
+    }
+    setPackSaving(false)
+    setPackMsg(`Spakowano ${kg.toLocaleString('pl-PL')} kg (${packForm.unit_count} × ${packForm.unit_weight_kg} kg ${packForm.unit_type==='worek'?'worki':'big bagi'}).`)
+    await loadPackData(packSel)
+    await loadPackOrders()
+    setPackForm(p => ({ ...p, unit_count:'', notes:'' }))
+  }
+
+  if (mode === 'pakowanie') {
+    return (
+      <div>
+        <div className="page-header">
+          <div>
+            <div className="page-title">Pakowanie</div>
+            <div className="page-sub">Podział luzu (big bag) na worki/BB pod zlecenie</div>
+          </div>
+          <div className="flex" style={{ gap:6 }}>
+            <button className="btn btn-sm" onClick={() => setMode('produkcja')}>Produkcja</button>
+            <button className="btn btn-sm" style={{ background:'#1D9E75', color:'#fff', borderColor:'#1D9E75' }}>Pakowanie</button>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom:10 }}>
+          <div style={{ fontWeight:500, fontSize:13, marginBottom:8, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span>Zlecenia w realizacji (do spakowania)</span>
+            <button className="btn btn-sm" onClick={loadPackOrders}>Odśwież</button>
+          </div>
+          {packOrders.length === 0 ? (
+            <div className="muted" style={{ fontSize:12 }}>Brak zleceń w realizacji</div>
+          ) : (
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ minWidth:600 }}>
+                <thead><tr>
+                  <th>Nr zlecenia</th><th>Klient</th><th>Receptura</th>
+                  <th style={{ textAlign:'right' }}>Ilość (kg)</th><th>Pakowanie</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {packOrders.map(o => (
+                    <tr key={o.id} style={{ background: packSel?.id===o.id ? '#E1F5EE' : undefined }}>
+                      <td><span className="lot">{o.order_number}</span></td>
+                      <td style={{ fontWeight:500 }}>{o.client}</td>
+                      <td style={{ fontSize:12 }}>{o.recipes?.name} <span className="muted">({o.recipes?.version})</span></td>
+                      <td style={{ textAlign:'right', fontWeight:500 }}>{parseFloat(o.quantity_kg).toLocaleString('pl-PL')} kg</td>
+                      <td className="muted" style={{ fontSize:11 }}>{o.pallets && o.bags_per_pallet && o.bag_weight_kg ? `${o.pallets} pal × ${o.bags_per_pallet} × ${parseFloat(o.bag_weight_kg).toLocaleString('pl-PL')} kg` : '—'}</td>
+                      <td><button className="btn btn-sm btn-primary" style={{ fontSize:11 }} onClick={() => selectPackOrder(o)}>Pakuj</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {packSel && (
+          <div className="card">
+            <div style={{ fontWeight:600, marginBottom:8 }}>Pakowanie zlecenia {packSel.order_number} — {packSel.client}</div>
+            {packError && <div className="err-box">{packError}</div>}
+            {packMsg && <div className="info-box" style={{ marginBottom:10 }}>{packMsg}</div>}
+
+            <div className="stat-grid" style={{ marginBottom:10 }}>
+              <div className="stat-card"><div className="stat-label">Cel zlecenia</div><div className="stat-val" style={{ fontSize:18 }}>{parseFloat(packSel.quantity_kg).toLocaleString('pl-PL')} kg</div></div>
+              <div className="stat-card"><div className="stat-label">Już spakowano</div><div className="stat-val" style={{ fontSize:18, color:'#085041' }}>{packDone.toLocaleString('pl-PL')} kg</div></div>
+              <div className="stat-card"><div className="stat-label">Pozostało</div><div className="stat-val" style={{ fontSize:18, color:'#BA7517' }}>{packRemaining.toLocaleString('pl-PL')} kg</div></div>
+              <div className="stat-card"><div className="stat-label">Luz dostępny</div><div className="stat-val" style={{ fontSize:18, color:'#0C447C' }}>{luzTotal.toLocaleString('pl-PL')} kg</div></div>
+            </div>
+
+            <div style={{ marginBottom:10 }}>
+              <div style={{ fontSize:12, fontWeight:600, marginBottom:6 }}>Big bagi (luz) — pobór FIFO</div>
+              {packLuz.length === 0 ? <div className="muted" style={{ fontSize:12 }}>Brak luzu tej receptury na magazynie</div> : (
+                <table style={{ minWidth:480 }}>
+                  <thead><tr><th>Nr partii</th><th>Data przyjęcia</th><th style={{ textAlign:'right' }}>Dostępne (kg)</th></tr></thead>
+                  <tbody>{packLuz.map(g => (
+                    <tr key={g.id}><td><span className="lot" style={{ fontSize:11 }}>{g.lot_number}</span></td><td className="muted" style={{ fontSize:11 }}>{g.received_date}</td><td style={{ textAlign:'right', fontWeight:500 }}>{parseFloat(g.available_kg).toLocaleString('pl-PL')}</td></tr>
+                  ))}</tbody>
+                </table>
+              )}
+            </div>
+
+            <div style={{ background:'#F7F6F1', border:'0.5px solid #E3E1D8', borderRadius:8, padding:'10px 12px' }}>
+              <div style={{ fontSize:12, fontWeight:600, color:'#085041', marginBottom:8 }}>Spakuj partię</div>
+              <div className="fr">
+                <div><label>Rodzaj jednostki</label>
+                  <select value={packForm.unit_type} onChange={e => setPackForm(p => ({ ...p, unit_type:e.target.value }))}>
+                    <option value="worek">Worek</option><option value="big_bag">Big bag</option>
+                  </select>
+                </div>
+                <div><label>Liczba jednostek</label><input type="number" min="0" step="1" value={packForm.unit_count} onChange={e => setPackForm(p => ({ ...p, unit_count:e.target.value }))} placeholder="np. 40" /></div>
+                <div><label>Waga 1 jednostki (kg)</label><input type="number" min="0" step="0.001" value={packForm.unit_weight_kg} onChange={e => setPackForm(p => ({ ...p, unit_weight_kg:e.target.value }))} placeholder="np. 25" /></div>
+              </div>
+              <div className="fr">
+                <div><label>Lokalizacja (opcjonalnie)</label><input value={packForm.location} onChange={e => setPackForm(p => ({ ...p, location:e.target.value }))} placeholder="np. Regał B-1" /></div>
+                <div><label>Uwagi</label><input value={packForm.notes} onChange={e => setPackForm(p => ({ ...p, notes:e.target.value }))} placeholder="opcjonalne" /></div>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:8 }}>
+                <span style={{ fontSize:13 }}>Do spakowania w tej operacji: <b style={{ color:'#085041' }}>{packKg ? packKg.toLocaleString('pl-PL')+' kg' : '—'}</b></span>
+                {canPack && <button className="btn btn-primary" onClick={doPack} disabled={packSaving || !packKg}>{packSaving?'Pakowanie...':'Spakuj'}</button>}
+              </div>
+              {packKg > packRemaining && packRemaining > 0 && <div className="muted" style={{ fontSize:11, marginTop:6, color:'#BA7517' }}>Uwaga: pakujesz więcej niż pozostało do celu zlecenia.</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -278,9 +480,13 @@ ${rows}
           <div className="page-title">Kalkulator receptur</div>
           <div className="page-sub">Dostęp: Technolog (edycja), Brygadzista (odczyt)</div>
         </div>
-        {fifoResult.length > 0 && (
-          <button className="btn btn-primary btn-sm" onClick={printChecklist}>Drukuj zlecenie produkcji</button>
-        )}
+        <div className="flex" style={{ gap:6, alignItems:'center' }}>
+          <button className="btn btn-sm" style={{ background:'#1D9E75', color:'#fff', borderColor:'#1D9E75' }}>Produkcja</button>
+          <button className="btn btn-sm" onClick={() => setMode('pakowanie')}>Pakowanie</button>
+          {fifoResult.length > 0 && (
+            <button className="btn btn-primary btn-sm" onClick={printChecklist}>Drukuj zlecenie produkcji</button>
+          )}
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom:10 }}>
