@@ -54,6 +54,19 @@ export default function Receptury() {
     return matchQ && matchClient && matchStatus
   })
 
+  // sortowanie: najpierw po NUMERZE KLIENTA, potem po KODZIE; bez numeru klienta → na dół
+  const clientNumById = {}
+  clients.forEach(c => { clientNumById[c.id] = (c.number != null && c.number !== '') ? parseInt(c.number) : null })
+  function clientRank(r) {
+    const n = r.client_id ? clientNumById[r.client_id] : null
+    return (n == null || isNaN(n)) ? Infinity : n
+  }
+  const sorted = [...filtered].sort((a, b) => {
+    const na = clientRank(a), nb = clientRank(b)
+    if (na !== nb) return na - nb
+    return (a.code || '').localeCompare(b.code || '', 'pl', { numeric: true })
+  })
+
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   function openNew() { setEditMode(false); setForm(EMPTY_FORM); setItems([{ ingredient_id:'', percentage:'' }]); setError(''); setModal(true) }
@@ -200,7 +213,7 @@ export default function Receptury() {
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={11} style={{ textAlign:'center', padding:24, color:'#888' }}>Ładowanie...</td></tr>}
-            {!loading && filtered.map(r => (
+            {!loading && sorted.map(r => (
               <React.Fragment key={r.id}>
                 <tr>
                   <td style={{ textAlign:'center' }}>
