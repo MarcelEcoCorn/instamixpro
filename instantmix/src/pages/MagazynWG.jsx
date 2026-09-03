@@ -45,6 +45,11 @@ export default function MagazynWG() {
   const [corrModal, setCorrModal] = useState(false)
   const [corrGood, setCorrGood] = useState(null)
   const [corrForm, setCorrForm] = useState({ correction_type: 'korekta_inwentury', delta_kg: '', reason: '', event_date: new Date().toISOString().slice(0, 10) })
+  const [corrEditModal, setCorrEditModal] = useState(false)
+  const [corrEditItem, setCorrEditItem] = useState(null)
+  const [corrEditForm, setCorrEditForm] = useState({ correction_type: 'korekta_inwentury', delta_kg: '', reason: '', event_date: '' })
+  const [savingCorrEdit, setSavingCorrEdit] = useState(false)
+  const [corrDeleteConfirm, setCorrDeleteConfirm] = useState(null)
   const [inwenturaModal, setInwenturaModal] = useState(false)
   const [inwenturaRows, setInwenturaRows] = useState([])
   const [inwenturaDate, setInwenturaDate] = useState(new Date().toISOString().slice(0, 10))
@@ -185,6 +190,30 @@ export default function MagazynWG() {
     const { error: err } = await supabase.from('fg_corrections').insert({ finished_good_id: corrGood.id, correction_type: corrForm.correction_type, delta_kg: delta, reason: corrForm.reason, event_date: corrForm.event_date, approved_by: profile?.id })
     if (err) { setError(err.message); setSaving(false); return }
     setSaving(false); setCorrModal(false); load()
+  }
+
+  function openCorrEdit(c) {
+    setCorrEditItem(c)
+    setCorrEditForm({ correction_type: c.correction_type, delta_kg: c.delta_kg, reason: c.reason || '', event_date: c.event_date })
+    setError(''); setCorrEditModal(true)
+  }
+  async function saveCorrEdit() {
+    if (!corrEditForm.reason) { setError('Podaj przyczynę korekty'); return }
+    if (corrEditForm.delta_kg === '' || isNaN(parseFloat(corrEditForm.delta_kg))) { setError('Podaj ilość korekty'); return }
+    setSavingCorrEdit(true); setError('')
+    const { error: err } = await supabase.from('fg_corrections').update({
+      correction_type: corrEditForm.correction_type,
+      delta_kg: parseFloat(corrEditForm.delta_kg),
+      reason: corrEditForm.reason,
+      event_date: corrEditForm.event_date
+    }).eq('id', corrEditItem.id)
+    setSavingCorrEdit(false)
+    if (err) { setError(err.message); return }
+    setCorrEditModal(false); load()
+  }
+  async function deleteCorr(c) {
+    await supabase.from('fg_corrections').delete().eq('id', c.id)
+    setCorrDeleteConfirm(null); load()
   }
 
   function openInwentura() {
@@ -711,10 +740,16 @@ export default function MagazynWG() {
                                             <div style={{ marginBottom:8 }}>
                                               <div style={{ fontSize:11, fontWeight:500, marginBottom:4, color:'#E65100' }}>Historia korekt</div>
                                               {gCorrs.map(c => (
-                                                <div key={c.id} style={{ fontSize:11, color:'#5F5E5A', padding:'3px 0', borderBottom:'0.5px solid #D3D1C7', display:'flex', gap:12 }}>
+                                                <div key={c.id} style={{ fontSize:11, color:'#5F5E5A', padding:'3px 0', borderBottom:'0.5px solid #D3D1C7', display:'flex', gap:12, alignItems:'center' }}>
                                                   <span><b>{CORR_LABELS[c.correction_type]||c.correction_type}</b>: {c.reason}</span>
                                                   <span className={`badge ${parseFloat(c.delta_kg)<0?'b-err':'b-ok'}`} style={{ fontSize:10 }}>{parseFloat(c.delta_kg)>0?'+':''}{parseFloat(c.delta_kg).toFixed(3)} kg</span>
                                                   <span className="muted">{c.event_date}</span>
+                                                  {isAdmin && (
+                                                    <span style={{ marginLeft:'auto', display:'flex', gap:4 }}>
+                                                      <button className="btn btn-sm" style={{ fontSize:10, padding:'1px 6px' }} onClick={() => openCorrEdit(c)}>Edytuj</button>
+                                                      <button className="btn btn-sm btn-danger" style={{ fontSize:10, padding:'1px 6px' }} onClick={() => setCorrDeleteConfirm(c)}>Usuń</button>
+                                                    </span>
+                                                  )}
                                                 </div>
                                               ))}
                                             </div>
@@ -873,6 +908,41 @@ export default function MagazynWG() {
           <div className="modal-footer">
             <button className="btn" onClick={() => setCorrModal(false)}>Anuluj</button>
             <button className="btn btn-danger" onClick={saveCorr} disabled={saving}>{saving?'Zapisywanie...':'Zapisz korektę'}</button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`modal-overlay ${corrEditModal?'open':''}`} onClick={e => e.target===e.currentTarget && setCorrEditModal(false)}>
+        <div className="modal" style={{ maxWidth:480 }}>
+          <div className="modal-title">Edycja korekty</div>
+          {!isAdmin && <div className="info-box" style={{ marginBottom:10 }}>Edycja dostępna tylko dla Admina.</div>}
+          {error && <div className="err-box">{error}</div>}
+          <div className="fr">
+            <div><label>Typ korekty</label>
+              <select value={corrEditForm.correction_type} onChange={e => setCorrEditForm(p=>({...p,correction_type:e.target.value}))}>
+                {Object.entries(CORR_LABELS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div><label>Korekta ilości (kg) — ujemna = ubytek</label>
+              <input type="number" step="0.001" value={corrEditForm.delta_kg} onChange={e => setCorrEditForm(p=>({...p,delta_kg:e.target.value}))} placeholder="np. -10 lub +5" />
+            </div>
+          </div>
+          <div style={{ marginBottom:10 }}><label>Przyczyna *</label><input value={corrEditForm.reason} onChange={e => setCorrEditForm(p=>({...p,reason:e.target.value}))} placeholder="np. zniszczenie opakowania" /></div>
+          <div><label>Data zdarzenia</label><input type="date" value={corrEditForm.event_date} onChange={e => setCorrEditForm(p=>({...p,event_date:e.target.value}))} /></div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setCorrEditModal(false)}>Anuluj</button>
+            {isAdmin && <button className="btn btn-primary" onClick={saveCorrEdit} disabled={savingCorrEdit}>{savingCorrEdit?'Zapisywanie...':'Zapisz zmiany'}</button>}
+          </div>
+        </div>
+      </div>
+
+      <div className={`modal-overlay ${corrDeleteConfirm?'open':''}`} onClick={e => e.target===e.currentTarget && setCorrDeleteConfirm(null)}>
+        <div className="modal" style={{ maxWidth:420 }}>
+          <div className="modal-title">Usuń korektę</div>
+          <div className="warn-box">Czy na pewno usunąć korektę <b>{corrDeleteConfirm ? (CORR_LABELS[corrDeleteConfirm.correction_type]||corrDeleteConfirm.correction_type) : ''}</b> ({corrDeleteConfirm ? (parseFloat(corrDeleteConfirm.delta_kg)>0?'+':'')+parseFloat(corrDeleteConfirm.delta_kg).toFixed(3) : ''} kg)? Stan magazynowy wróci do wartości sprzed korekty.</div>
+          <div className="modal-footer">
+            <button className="btn" onClick={() => setCorrDeleteConfirm(null)}>Anuluj</button>
+            <button className="btn btn-danger" onClick={() => deleteCorr(corrDeleteConfirm)}>Tak, usuń</button>
           </div>
         </div>
       </div>
