@@ -96,14 +96,16 @@ export default function MagazynWG() {
     const productMap = {}
     for (const item of (g || [])) {
       const key = item.recipe_code + '||' + item.recipe_name
-      if (!productMap[key]) productMap[key] = { recipe_code: item.recipe_code, recipe_name: item.recipe_name, recipe_version: item.recipe_version, original_kg: 0, issued_kg: 0, corrections_kg: 0, available_kg: 0, batch_count: 0 }
+      if (!productMap[key]) productMap[key] = { recipe_code: item.recipe_code, recipe_name: item.recipe_name, recipe_version: item.recipe_version, original_kg: 0, issued_kg: 0, corrections_kg: 0, available_kg: 0, batchSet: new Set(), batch_count: 0 }
       productMap[key].original_kg += (item.form === 'spakowane') ? 0 : parseFloat(item.original_kg || 0)
       productMap[key].issued_kg += parseFloat(item.issued_kg || 0)
       productMap[key].corrections_kg += parseFloat(item.corrections_kg || 0)
       productMap[key].available_kg += parseFloat(item.available_kg || 0)
-      productMap[key].batch_count++
+      if (item.production_batch_id) productMap[key].batchSet.add(item.production_batch_id)
     }
-    setProducts(Object.values(productMap))
+    const productArr = Object.values(productMap)
+    productArr.forEach(p => { p.batch_count = p.batchSet.size })
+    setProducts(productArr)
     setLoading(false)
   }
 
