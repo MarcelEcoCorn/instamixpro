@@ -97,7 +97,7 @@ export default function MagazynWG() {
     for (const item of (g || [])) {
       const key = item.recipe_code + '||' + item.recipe_name
       if (!productMap[key]) productMap[key] = { recipe_code: item.recipe_code, recipe_name: item.recipe_name, recipe_version: item.recipe_version, original_kg: 0, issued_kg: 0, corrections_kg: 0, available_kg: 0, batch_count: 0 }
-      productMap[key].original_kg += parseFloat(item.original_kg || 0)
+      productMap[key].original_kg += (item.form === 'spakowane') ? 0 : parseFloat(item.original_kg || 0)
       productMap[key].issued_kg += parseFloat(item.issued_kg || 0)
       productMap[key].corrections_kg += parseFloat(item.corrections_kg || 0)
       productMap[key].available_kg += parseFloat(item.available_kg || 0)
@@ -119,7 +119,7 @@ export default function MagazynWG() {
   const stats = {
     products: products.length,
     available: products.filter(p => parseFloat(p.available_kg) > 0).length,
-    totalKg: goods.reduce((s, g) => s + parseFloat(g.original_kg || 0), 0).toFixed(1),
+    totalKg: goods.reduce((s, g) => s + (g.form==='spakowane'?0:parseFloat(g.original_kg || 0)), 0).toFixed(1),
     availableKg: goods.reduce((s, g) => s + parseFloat(g.available_kg || 0), 0).toFixed(1),
   }
 
@@ -610,6 +610,9 @@ export default function MagazynWG() {
                       <td colSpan={9} style={{ padding:0, background:'#F9F8F5' }}>
                         <div style={{ padding:'8px 16px 12px 40px' }}>
                           <div style={{ fontSize:12, fontWeight:500, color:'#0F6E56', marginBottom:8 }}>Partie — {p.recipe_name}</div>
+                          <div className="muted" style={{ fontSize:10, marginBottom:6 }}>
+                            Spakowanie luzu w worki/BB pokazuje się jako „w tym spakowano" w kolumnie Wydano, a spakowany towar jako osobna pozycja („z pakow.") — nie jest liczony ponownie do „Przyjęto".
+                          </div>
                           <table style={{ width:'auto', minWidth:700 }}>
                             <thead><tr>
                               <th style={{ width:32 }}></th>
@@ -642,11 +645,26 @@ export default function MagazynWG() {
                                         <div style={{ marginTop:2 }}><span className={`badge ${formLabel(g).cls}`} style={{ fontSize:9 }}>{formLabel(g).text}</span></div>
                                       </td>
                                       <td className="muted" style={{ fontSize:11 }}>{g.received_date}</td>
-                                      <td style={{ textAlign:'right', color:'#085041', fontWeight:500, fontSize:12 }}>{fmt3(g.original_kg)}</td>
+                                      <td style={{ textAlign:'right', color:'#085041', fontWeight:500, fontSize:12 }}>
+                                        {g.form==='spakowane'
+                                          ? <span className="muted" style={{ fontWeight:400 }} title="Towar spakowany z luzu — nie liczony ponownie do Przyjęto">— <span style={{ fontSize:9 }}>(z pakow.)</span></span>
+                                          : fmt3(g.original_kg)}
+                                      </td>
                                       <td style={{ textAlign:'right', fontSize:11, color:parseFloat(g.corrections_kg)<0?'#A32D2D':parseFloat(g.corrections_kg)>0?'#085041':'#888' }}>
                                         {parseFloat(g.corrections_kg)!==0?(parseFloat(g.corrections_kg)>0?'+':'')+fmt3(g.corrections_kg):'—'}
                                       </td>
-                                      <td style={{ textAlign:'right', color:'#633806', fontSize:12 }}>{fmt3(g.issued_kg)}</td>
+                                      <td style={{ textAlign:'right', color:'#633806', fontSize:12 }}>
+                                        {(() => {
+                                          const issued = parseFloat(g.issued_kg||0)
+                                          const packedOut = parseFloat(g.packed_out_kg||0)
+                                          const totalOut = issued + packedOut
+                                          if (totalOut <= 0.0005) return '—'
+                                          return (<>
+                                            {fmt3(totalOut)}
+                                            {packedOut > 0.0005 && <div style={{ fontSize:9, color:'#3C3489' }}>w tym spakowano {fmt3(packedOut)}</div>}
+                                          </>)
+                                        })()}
+                                      </td>
                                       <td style={{ textAlign:'right' }}>
                                         <span style={{ fontWeight:700, color:avail<=0?'#888':'#0F6E56', fontSize:12 }}>{fmt3(avail)}</span>
                                       </td>
