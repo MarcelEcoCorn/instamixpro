@@ -342,8 +342,8 @@ export default function MagazynWG() {
     const fgValueMap = {}
     for (const fg of (allGoods||[])) { fgValueMap[fg.id] = bvLocal[fg.production_batch_id] || 0 }
     const [{ data: przyjecia }, { data: przyjBefore }, { data: wzPeriod }, { data: wzBefore }, { data: corrPeriod }, { data: corrBefore }] = await Promise.all([
-      supabase.from('finished_goods').select('id,quantity_kg,received_date,production_batches(recipe_id,recipes(code,name))').gte('received_date',d1).lte('received_date',d2),
-      supabase.from('finished_goods').select('id,quantity_kg,received_date,production_batches(recipe_id,recipes(code,name))').lt('received_date',d1),
+      supabase.from('finished_goods').select('id,quantity_kg,received_date,form,production_batches(recipe_id,recipes(code,name))').gte('received_date',d1).lte('received_date',d2),
+      supabase.from('finished_goods').select('id,quantity_kg,received_date,form,production_batches(recipe_id,recipes(code,name))').lt('received_date',d1),
       supabase.from('wz_documents').select('quantity_kg,issue_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').gte('issue_date',d1).lte('issue_date',d2),
       supabase.from('wz_documents').select('quantity_kg,issue_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').lt('issue_date',d1),
       supabase.from('fg_corrections').select('delta_kg,event_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').gte('event_date',d1).lte('event_date',d2),
@@ -369,13 +369,14 @@ export default function MagazynWG() {
       nameMap[k]=rn(c); codeMap[k]=rc(c)
     }
     for (const p of (przyjBefore||[])) {
+      if (p.form === 'spakowane') continue   // pakowanie to ruch wewnętrzny — nie przychód
       const k=rk(p); if(!k) continue; keys.add(k)
       boMap[k]=(boMap[k]||0)+parseFloat(p.quantity_kg)
       boValMap[k]=(boValMap[k]||0)+(fgValueMap[p.id]||0)
       nameMap[k]=rn(p); codeMap[k]=rc(p)
     }
     for (const k of Object.keys(boValMap)) { boValMap[k] = Math.max(0, (boValMap[k]||0) - (wzBeforeValMap[k]||0) + (corrBeforeValMap[k]||0)) }
-    for (const p of (przyjecia||[])) { const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
+    for (const p of (przyjecia||[])) { if (p.form === 'spakowane') continue; const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
     for (const w of (wzPeriod||[])) {
       const k=rk(w); if(!k) continue; keys.add(k)
       rozchMap[k]=(rozchMap[k]||0)+parseFloat(w.quantity_kg)
