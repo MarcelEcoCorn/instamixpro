@@ -23,6 +23,7 @@ export default function MagazynWG() {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [batchValues, setBatchValues] = useState({})
+  const [luzBatchIds, setLuzBatchIds] = useState(new Set())
   const [expandedProduct, setExpandedProduct] = useState(null)
   const [expandedGood, setExpandedGood] = useState(null)
   const [search, setSearch] = useState('')
@@ -87,6 +88,10 @@ export default function MagazynWG() {
       }
     }
     setBatchValues(bvMap)
+    // partie, które mają wiersz luzu — ich spakowane wiersze to przepakowanie (nie liczymy ponownie)
+    const luzBatches = new Set((g || []).filter(x => x.form !== 'spakowane').map(x => x.production_batch_id))
+    setLuzBatchIds(luzBatches)
+    const isTransform = (item) => item.form === 'spakowane' && luzBatches.has(item.production_batch_id)
     const acceptedBatchIds = new Set((g || []).map(x => x.production_batch_id))
     setGoods(g || [])
     setWzDocs(wz || [])
@@ -97,7 +102,7 @@ export default function MagazynWG() {
     for (const item of (g || [])) {
       const key = item.recipe_code + '||' + item.recipe_name
       if (!productMap[key]) productMap[key] = { recipe_code: item.recipe_code, recipe_name: item.recipe_name, recipe_version: item.recipe_version, original_kg: 0, issued_kg: 0, corrections_kg: 0, available_kg: 0, batchSet: new Set(), batch_count: 0 }
-      productMap[key].original_kg += (item.form === 'spakowane') ? 0 : parseFloat(item.original_kg || 0)
+      productMap[key].original_kg += isTransform(item) ? 0 : parseFloat(item.original_kg || 0)
       productMap[key].issued_kg += parseFloat(item.issued_kg || 0)
       productMap[key].corrections_kg += parseFloat(item.corrections_kg || 0)
       productMap[key].available_kg += parseFloat(item.available_kg || 0)
@@ -121,7 +126,7 @@ export default function MagazynWG() {
   const stats = {
     products: products.length,
     available: products.filter(p => parseFloat(p.available_kg) > 0).length,
-    totalKg: goods.reduce((s, g) => s + (g.form==='spakowane'?0:parseFloat(g.original_kg || 0)), 0).toFixed(1),
+    totalKg: goods.reduce((s, g) => s + (isTransformRow(g) ? 0 : parseFloat(g.original_kg || 0)), 0).toFixed(1),
     availableKg: goods.reduce((s, g) => s + parseFloat(g.available_kg || 0), 0).toFixed(1),
   }
 
@@ -327,7 +332,8 @@ export default function MagazynWG() {
   async function obliczBilans() {
     setBilansLoading(true); setShowBilans(true)
     const d1=bilansDat1, d2=bilansDat2
-    const { data: allGoods } = await supabase.from('finished_goods').select('id,production_batch_id,quantity_kg')
+    const { data: allGoods } = await supabase.from('finished_goods').select('id,production_batch_id,quantity_kg,form')
+    const luzBatches = new Set((allGoods||[]).filter(x => x.form !== 'spakowane').map(x => x.production_batch_id))
     const allBatchIds = (allGoods||[]).map(x=>x.production_batch_id).filter(Boolean)
     const bvLocal = {}
     if (allBatchIds.length > 0) {
@@ -342,8 +348,8 @@ export default function MagazynWG() {
     const fgValueMap = {}
     for (const fg of (allGoods||[])) { fgValueMap[fg.id] = bvLocal[fg.production_batch_id] || 0 }
     const [{ data: przyjecia }, { data: przyjBefore }, { data: wzPeriod }, { data: wzBefore }, { data: corrPeriod }, { data: corrBefore }] = await Promise.all([
-      supabase.from('finished_goods').select('id,quantity_kg,received_date,form,production_batches(recipe_id,recipes(code,name))').gte('received_date',d1).lte('received_date',d2),
-      supabase.from('finished_goods').select('id,quantity_kg,received_date,form,production_batches(recipe_id,recipes(code,name))').lt('received_date',d1),
+      supabase.from('finished_goods').select('id,quantity_kg,received_date,form,production_batch_id,production_batches(recipe_id,recipes(code,name))').gte('received_date',d1).lte('received_date',d2),
+      supabase.from('finished_goods').select('id,quantity_kg,received_date,form,production_batch_id,production_batches(recipe_id,recipes(code,name))').lt('received_date',d1),
       supabase.from('wz_documents').select('quantity_kg,issue_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').gte('issue_date',d1).lte('issue_date',d2),
       supabase.from('wz_documents').select('quantity_kg,issue_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').lt('issue_date',d1),
       supabase.from('fg_corrections').select('delta_kg,event_date,finished_good_id,finished_goods(production_batch_id,production_batches(recipe_id,recipes(code,name)))').gte('event_date',d1).lte('event_date',d2),
@@ -369,14 +375,14 @@ export default function MagazynWG() {
       nameMap[k]=rn(c); codeMap[k]=rc(c)
     }
     for (const p of (przyjBefore||[])) {
-      if (p.form === 'spakowane') continue   // pakowanie to ruch wewnętrzny — nie przychód
+      if (p.form === 'spakowane' && luzBatches.has(p.production_batch_id)) continue   // przepakowanie luzu — nie przychód
       const k=rk(p); if(!k) continue; keys.add(k)
       boMap[k]=(boMap[k]||0)+parseFloat(p.quantity_kg)
       boValMap[k]=(boValMap[k]||0)+(fgValueMap[p.id]||0)
       nameMap[k]=rn(p); codeMap[k]=rc(p)
     }
     for (const k of Object.keys(boValMap)) { boValMap[k] = Math.max(0, (boValMap[k]||0) - (wzBeforeValMap[k]||0) + (corrBeforeValMap[k]||0)) }
-    for (const p of (przyjecia||[])) { if (p.form === 'spakowane') continue; const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
+    for (const p of (przyjecia||[])) { if (p.form === 'spakowane' && luzBatches.has(p.production_batch_id)) continue; const k=rk(p); if(!k) continue; keys.add(k); przychMap[k]=(przychMap[k]||0)+parseFloat(p.quantity_kg); przychValMap[k]=(przychValMap[k]||0)+(fgValueMap[p.id]||0); nameMap[k]=rn(p); codeMap[k]=rc(p) }
     for (const w of (wzPeriod||[])) {
       const k=rk(w); if(!k) continue; keys.add(k)
       rozchMap[k]=(rozchMap[k]||0)+parseFloat(w.quantity_kg)
@@ -419,6 +425,9 @@ export default function MagazynWG() {
   const fmt3 = v => parseFloat(v || 0).toFixed(3)
 
   // opis formy towaru: luz = big bag, spakowane = worki/BB o danej wadze
+  // spakowany wiersz będący przepakowaniem luzu tej samej partii (nie liczy się jako przyjęcie)
+  function isTransformRow(g) { return g?.form === 'spakowane' && luzBatchIds.has(g.production_batch_id) }
+
   // liczba big bagów luzu = dostępne / waga 1 BB
   function bbCount(g) {
     const w = parseFloat(g?.unit_weight_kg || 0)
@@ -649,7 +658,7 @@ export default function MagazynWG() {
                                       </td>
                                       <td className="muted" style={{ fontSize:11 }}>{g.received_date}</td>
                                       <td style={{ textAlign:'right', color:'#085041', fontWeight:500, fontSize:12 }}>
-                                        {g.form==='spakowane'
+                                        {isTransformRow(g)
                                           ? <span className="muted" style={{ fontWeight:400 }} title="Towar spakowany z luzu — nie liczony ponownie do Przyjęto">— <span style={{ fontSize:9 }}>(z pakow.)</span></span>
                                           : fmt3(g.original_kg)}
                                       </td>
